@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  namespace: REPLACE_NAMESPACE
+  name: nextensio-ingressgateway
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 443
+      name: http-nextensio-agent
+      protocol: HTTP
+    hosts:
+    - "REPLACE_GW"
+  - port:
+      number: 80
+      name: http-nextensio-for
+      protocol: HTTP
+    hosts:
+    - "REPLACE_GW"

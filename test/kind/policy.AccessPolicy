@@ -1,0 +1,100 @@
+package app.access
+
+allow = is_allowed
+
+default is_allowed = false
+
+is_allowed {
+	   some i
+	   input.tenant == data.bundles[i].tenant
+	   input.bid == data.bundles[i].bid
+	   input.maj_ver == data.bundles[i].maj_ver
+	   data.bundles[i].IC != ""
+	   data.bundles[i].IC <= input.level
+	   dept := data.bundles[i].dept[_]
+	   dept == input.dept[_]
+	   user_is_employee_IC
+	   input.level != ""
+}
+
+is_allowed  {
+	    some i
+	    input.tenant == data.bundles[i].tenant
+	    input.bid == data.bundles[i].bid
+	    input.maj_ver == data.bundles[i].maj_ver
+	    data.bundles[i].IC != ""
+	    data.bundles[i].IC <= input.level
+	    team := data.bundles[i].team[_]
+	    team == input.team[_]
+	    user_is_employee_IC
+	    input.level != ""
+}
+
+is_allowed  {
+	    some i
+	    input.tenant == data.bundles[i].tenant
+	    input.bid == data.bundles[i].bid
+	    input.maj_ver == data.bundles[i].maj_ver
+	    data.bundles[i].manager != ""
+	    data.bundles[i].manager <= input.level
+	    dept := data.bundles[i].dept[_]
+	    dept == input.dept[_]
+	    user_is_employee_manager
+	    input.level != ""
+}
+
+is_allowed  {
+	    some i
+	    input.tenant == data.bundles[i].tenant
+	    input.bid == data.bundles[i].bid
+	    input.maj_ver == data.bundles[i].maj_ver
+	    data.bundles[i].manager != ""
+	    data.bundles[i].manager <= input.level
+	    team := data.bundles[i].team[_]
+	    team == input.team[_]
+	    user_is_employee_manager
+	    input.level != ""
+}
+
+is_allowed  {
+	    some i
+	    input.tenant == data.bundles[i].tenant
+	    input.bid == data.bundles[i].bid
+	    input.maj_ver == data.bundles[i].maj_ver
+	    data.bundles[i].nonemployee == "allow"
+	    dept := data.bundles[i].dept[_]
+	    dept == input.dept[_]
+	    user_is_nonemployee
+}
+
+is_allowed  {
+	    some i
+	    input.tenant == data.bundles[i].tenant
+	    input.bid == data.bundles[i].bid
+	    input.maj_ver == data.bundles[i].maj_ver
+	    data.bundles[i].nonemployee == "allow"
+	    team := data.bundles[i].team[_]
+	    team == input.team[_]
+	    user_is_nonemployee
+}
+
+default user_is_employee_IC = false
+
+user_is_employee_IC {
+		    input.category == "employee"
+		    input.type == "IC"
+		    }
+
+default user_is_employee_manager = false
+
+user_is_employee_manager {
+			 input.category == "employee"
+			 input.type == "manager"
+			 }
+
+default user_is_nonemployee = false
+
+user_is_nonemployee {
+		    input.category == "nonemployee"
+		    }
+
