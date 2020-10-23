@@ -1,0 +1,9 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  namespace: REPLACE_NAMESPACE
+  name: egressgateway-for-nextensio
+spec:
+  host: istio-egressgateway.istio-system.svc.cluster.local
+  subsets:
+  - name: nextensio-egress

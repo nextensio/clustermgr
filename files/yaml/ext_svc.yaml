@@ -1,0 +1,47 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  namespace: REPLACE_NAMESPACE
+  name: external-svc-REPLACE_SVC_NAME
+spec:
+  hosts:
+  - REPLACE_GW
+  ports:
+  - number: 80
+    name: http
+    protocol: HTTP
+  resolution: DNS
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  namespace: REPLACE_NAMESPACE
+  name: via-egress-gateway-REPLACE_SVC_NAME
+spec:
+  hosts:
+  - REPLACE_GW
+  gateways:
+  - nextensio-egressgateway-REPLACE_SVC_NAME
+  - mesh
+  http:
+  - match:
+    - gateways:
+      - mesh
+      port: 80
+    route:
+    - destination:
+        host: istio-egressgateway.istio-system.svc.cluster.local
+        subset: nextensio-egress
+        port:
+          number: 80
+      weight: 100
+  - match:
+    - gateways:
+      - nextensio-egressgateway-REPLACE_SVC_NAME
+      port: 80
+    route:
+    - destination:
+        host: REPLACE_GW
+        port:
+          number: 80
+      weight: 100
