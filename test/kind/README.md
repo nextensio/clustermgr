@@ -193,3 +193,25 @@ etc.. Follow the previous instructions on how to upload the docker image and res
 on how to create such a docker image with a dummy start program, see the Dockerfile.debug example in the 
 cluster repository, it starts a minion pod where you have to launch minion manually
 
+* What do I do if I cant browse via my proxy ?
+
+Well, if you read this, you are a nextensio engineer - you have to debug the problem and get to some understanding
+of what failed so we can fix it. So the below steps are just pointers on the "places to look for" and a 
+suggestion to restart the "places" if it has a problem, but do not restart until you have figured out what
+the problem is - we can only get better by fixing one issue at a time, its fine if it takes long time 
+initially to figure things out, it will get easier only if we go through that process
+
+1. Lets start with agent first, assuming you have pointed your proxy to agent1, login to the agent docker
+by saying 'docker exec -it nxt-agent2 /bin/bash' and do a 'tail -f /var/log/agent.log' and confirm that 
+every 10 seconds you see the message 'websocket is still open'. Otherwise something happened to the web
+socket or something happened to the onboarding etc.. - we have code in place to retry everyting in case
+of errors, but its still getting hardened and better-ed as we speak. If the agent has an issue, then
+do "create.sh reset-agent" and that will restart both the agents, try again now.
+
+2. Do the same above for connector, if connector websocket has issues, "create.sh reset-conn" and try again
+
+3. Sometimes the ubuntu proxy setting gets into a wierd state - so just disable ubuntu proxy and enable
+it again and see if it works
+
+4. If none of that is the case, you can try restarting the minion pods in either the agent or connector
+clusters or both
