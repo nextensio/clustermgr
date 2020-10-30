@@ -56,8 +56,6 @@ images, this is a one time activity
 
 * install kind (https://kind.sigs.k8s.io/docs/user/quick-start/) - the kind command needs to be in $PATH
 
-* Install python3 and pip3 and then 'pip3 install requests' and 'pip3 install websockets'. 
-
 Thats about it, you are ready to create the full nextensio setup!
 
 ### Creating the setup
