@@ -238,10 +238,6 @@ function create_all {
 
 function save_env {
     echo "###########################################################################"
-    echo "########## ADD THE BELOW TWO LINES IN YOUR /etc/hosts FILE ################"
-    echo $testa_ip gateway.testa.nextensio.net
-    echo $testc_ip gateway.testc.nextensio.net
-    echo "###########################################################################"
     echo "######You can access controller UI at http://$ctrl_ip:3000/  ############"
     echo "##You can set a broswer proxy to $agent1_ip:8081 to send traffic via nextensio##"
     echo "##OR You can set a broswer proxy to $agent2_ip:8081 to send traffic via nextensio##"
