@@ -114,25 +114,11 @@ kubernetes policies corresponding to the users and connectors etc..
 Once the clusters are all created, at the end of the script run, it will clearly say a message asking us to
 add the gateway domain names to our /etc/host file so we can use the domain names in our test cases.
 
-A basic unit test to do is to open two shells and type the below in each - the shorty.py can be found 
-in the nextensio "cluster" repository in istio_client directory
-
-./shorty.py --domain --name gateway.testa.nextensio.net --to_name service-default --service test1-nextensio.net --port 443 --token --services "service-1"
-./shorty.py --domain --name gateway.testc.nextensio.net --to_name service-1 --service default-nextensio.net --port 443 --token --services "service-default"
-
-And each of that will wait for input after a "Hello NCTR!" welcome message. And input typed on one shell
-will be sent via nextensio clusters and reach the other shell. Note that the user is created as test1@nextensio.net,
-but in the shorty command line it comes test1-nextensio.net - we convert the @ to - becuase kubernetes rules
-dont like an @ character
-
-Over time, we will add capability to have multiple users/connectors and multiple tenants etc.., and the
-shorty.py will be expanded to help us have automated test cases for testing various combinations.
-
-Also not available yet but coming in a matter of days, we will also be able to open up two shells and on one
-run our real agent code, and on the other run the real connector code, and open a browser and go to any 
-website - which will basically take the path of brower-->agent-->local-clusters--connector-->internet !
-
-So in short, for all practical purposes, this can do anything a "real aws cluster" can do.
+The script will output the address of two agents at port 8081. You can point your browser to either of 
+the agents and browse internet, that all goes via the local nextensio clusters ! And you can use the 
+nextensio UI to add / modify the routing rules for the agents etc.. There is also a kismis.org internal
+website hosted on two docker containers nxt-kismis-ONE and nxt-kismis-TWO, agent1 goes to kismis-ONE and
+agent2 to kismis-TWO, both showing different data for the same website URL !
 
 ## FAQs
 
@@ -175,7 +161,11 @@ say you are going to upgrade testa first, so you say 'kubectl config use-context
 the pod names 'clustermgr' and get a shell to that pod (kubectl exec -it ... -- /bin/sh) and then check for 
 yamls in /tmp/ in that pod. You will find the Deployment yamls and do the same delete and apply again.
 
-NOTE: I plead ignorance here, I dont know any other easy way to restart/upgrade a pod other than delete/apply,
+NOTE1: Once you build your own image and tag it as latest, and next time you want that to be used when
+creating a brand new setup, make sure to say 'create.sh local' - ie ensure that docker doesnt download
+images from gitlab and just use the local images
+
+NOTE2: I plead ignorance here, I dont know any other easy way to restart/upgrade a pod other than delete/apply,
 so if anyone knows a better way please do update this section with the easier method
 
 * I want to create a cluster with some image thats not the ones in gitlab labelled latest

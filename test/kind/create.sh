@@ -11,13 +11,17 @@ tmpdir=/tmp/nextensio-kind
 kubectl=$tmpdir/kubectl
 istioctl=$tmpdir/istioctl
 
+function download_images {
+    docker pull registry.gitlab.com/nextensio/ux/ux-deploy:latest
+    docker pull registry.gitlab.com/nextensio/controller/controller-test:latest
+    docker pull registry.gitlab.com/nextensio/cluster/minion:latest
+    docker pull registry.gitlab.com/nextensio/clustermgr/mel-deploy:latest
+    docker pull registry.gitlab.com/nextensio/agent/agent-deploy:latest
+}
+
 # Create a controller
 function create_controller {
     kind create cluster --config ./kind-config.yaml --name controller
-
-    # Get the controller and UI/UX images
-    docker pull registry.gitlab.com/nextensio/ux/ux-deploy:latest
-    docker pull registry.gitlab.com/nextensio/controller/controller-test:latest
 
     kind load docker-image registry.gitlab.com/nextensio/ux/ux-deploy:latest --name controller
     kind load docker-image registry.gitlab.com/nextensio/controller/controller-test:latest --name controller
@@ -61,13 +65,14 @@ function create_cluster {
     $kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
     $kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
 
-    # get docker images
-    docker pull registry.gitlab.com/nextensio/cluster/minion:latest
-    docker pull registry.gitlab.com/nextensio/clustermgr/mel-deploy:latest
-
     # kind needs all images locally present, it wont download from any registry
     kind load docker-image registry.gitlab.com/nextensio/cluster/minion:latest --name $cluster
     kind load docker-image registry.gitlab.com/nextensio/clustermgr/mel-deploy:latest --name $cluster
+
+    # Create ssl keys/certificates for agents/connectors to establish secure websocket
+    openssl req -out $tmpdir/$cluster-gw.csr -newkey rsa:2048 -nodes -keyout $tmpdir/$cluster-gw.key \
+        -subj "/CN=gateway.$cluster.nextensio.net/O=Nextensio Gateway $cluster"
+    openssl x509 -req -days 365 -CA $tmpdir/rootca.crt -CAkey $tmpdir/rootca.key -set_serial 0 -in $tmpdir/$cluster-gw.csr -out $tmpdir/$cluster-gw.crt
 }
 
 function bootstrap_cluster {
@@ -76,6 +81,8 @@ function bootstrap_cluster {
     ctrl_ip=$3
 
     $kubectl config use-context kind-$cluster
+
+    $kubectl create -n istio-system secret tls gw-credential --key=$tmpdir/$cluster-gw.key --cert=$tmpdir/$cluster-gw.crt
 
     # Deploy the clustr manager "mel"
     tmpf=$tmpdir/$cluster-mel.yaml
@@ -150,7 +157,28 @@ function consul_join {
     $kubectl exec -it testc-consul-server-0 -n consul-system -- consul join -wan $testa_ip
 }
 
-function main {
+function create_agent {
+    name=$1
+    agent=$2
+    username=$3
+    etchost_ip=$4
+    etchost_name=$5
+    services=$6
+
+    docker run -d -it \
+        -e NXT_GW_1_IP=$testa_ip -e NXT_GW_1_NAME=gateway.testa.nextensio.net \
+        -e NXT_GW_2_IP=$testc_ip -e NXT_GW_2_NAME=gateway.testc.nextensio.net \
+        -e NXT_GW_3_IP=$etchost_ip -e NXT_GW_3_NAME=$etchost_name \
+        -e NXT_USERNAME=$username -e NXT_PWD=LetMeIn123 \
+        -e NXT_AGENT=$agent -e NXT_CONTROLLER=$ctrl_ip \
+        -e NXT_AGENT_NAME=$name -e NXT_SERVICES=$services \
+        --network kind --name $name registry.gitlab.com/nextensio/agent/agent-deploy:latest
+}
+
+function create_all {
+    # Create a root CA
+    openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:2048 -subj '/O=Nextensio Gateway/CN=gateway.*.nextensio.net' \
+        -keyout $tmpdir/rootca.key -out $tmpdir/rootca.crt
     create_controller
     create_cluster testa
     create_cluster testc
@@ -191,25 +219,103 @@ function main {
       sleep 5;
     done
     # configure the controller with some default customer/tenant information
-    ./ctrl.py $ctrl_ip
+    ./ctrl.py $ctrl_ip $tmpdir
+
+    docker kill nxt-agent1; docker rm nxt-agent1
+    docker kill nxt-agent2; docker rm nxt-agent2
+    docker kill nxt-default; docker rm nxt-default
+    docker kill nxt-kismis-ONE; docker rm nxt-kismis-ONE
+    docker kill nxt-kismis-TWO; docker rm nxt-kismis-TWO
+    docker container prune -f
+    create_agent nxt-agent1 true test1@nextensio.net
+    create_agent nxt-agent2 true test2@nextensio.net
+    create_agent nxt-default false default@nextensio.net 127.0.0.1 foobar.com default-internet
+    create_agent nxt-kismis-ONE false v1.kismis@nextensio.net 127.0.0.1 kismis.org v1-kismis-org
+    create_agent nxt-kismis-TWO false v2.kismis@nextensio.net 127.0.0.1 kismis.org v2-kismis-org
+    agent1_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nxt-agent1`
+    agent2_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nxt-agent2`
 }
 
-rm -rf $tmpdir/ 
-mkdir $tmpdir
-# Download kubectl
-curl -fsL https://storage.googleapis.com/kubernetes-release/release/v1.18.5/bin/linux/amd64/kubectl -o $tmpdir/kubectl
-chmod +x $tmpdir/kubectl
-# Download istioctl
-curl -fsL https://github.com/istio/istio/releases/download/1.6.4/istioctl-1.6.4-linux-amd64.tar.gz -o $tmpdir/istioctl.tgz
-tar -xvzf $tmpdir/istioctl.tgz -C $tmpdir/
-chmod +x $tmpdir/istioctl
-# Create everything!
-main
+function save_env {
+    echo "###########################################################################"
+    echo "########## ADD THE BELOW TWO LINES IN YOUR /etc/hosts FILE ################"
+    echo $testa_ip gateway.testa.nextensio.net
+    echo $testc_ip gateway.testc.nextensio.net
+    echo "###########################################################################"
+    echo "######You can access controller UI at http://$ctrl_ip:3000/  ############"
+    echo "##You can set a broswer proxy to $agent1_ip:8081 to send traffic via nextensio##"
+    echo "##OR You can set a broswer proxy to $agent2_ip:8081 to send traffic via nextensio##"
+    echo "##All the above information is saved in $tmpdir/environment for future reference##"
+    
+    envf=$tmpdir/environment
+    echo "testa_ip=$testa_ip" > $envf
+    echo "testc_ip=$testc_ip" >> $envf
+    echo "ctrl_ip=$ctrl_ip" >> $envf
+    echo "agent1_ip=$agent1_ip" >> $envf
+    echo "agent2_ip=$agent2_ip" >> $envf
+}
 
-echo "###########################################################################"
-echo "########## ADD THE BELOW TWO LINES IN YOUR /etc/hosts FILE ################"
-echo $testa_ip gateway.testa.nextensio.net
-echo $testc_ip gateway.testc.nextensio.net
-echo "###########################################################################"
-echo "######You can access controller UI at http://$ctrl_ip:3000/  ############"
+function main {
+    image=$1
+    if [ "$image" != "local" ];
+    then
+        download_images
+    fi
+    rm -rf $tmpdir/ 
+    mkdir $tmpdir
+    # Download kubectl
+    curl -fsL https://storage.googleapis.com/kubernetes-release/release/v1.18.5/bin/linux/amd64/kubectl -o $tmpdir/kubectl
+    chmod +x $tmpdir/kubectl
+    # Download istioctl
+    curl -fsL https://github.com/istio/istio/releases/download/1.6.4/istioctl-1.6.4-linux-amd64.tar.gz -o $tmpdir/istioctl.tgz
+    tar -xvzf $tmpdir/istioctl.tgz -C $tmpdir/
+    chmod +x $tmpdir/istioctl
+    # Create everything!
+    create_all
+    # Display and save environment information
+    save_env
+}
+
+function usage {
+    echo "create.sh usage : this will print this usage message"
+    echo "create.sh : this will download images from gitlab and create the entire topology"
+    echo "create.sh local-image : this will expect all images to be in local docker and create the entire topology"
+    echo "create.sh reset-agent : this will restart the agent docker"
+    echo "create.sh reset-conn : this will restart the connector(s) docker(s)"
+}
+
+options=$1
+case "$options" in
+*usage)
+    usage
+    ;;
+*local-image)
+    main local
+    ;;
+*reset-agent)
+    source $tmpdir/environment
+    docker kill nxt-agent1; docker rm nxt-agent1
+    docker kill nxt-agent2; docker rm nxt-agent2
+    docker container prune -f
+    create_agent nxt-agent1 true test1@nextensio.net
+    create_agent nxt-agent2 true test2@nextensio.net
+    agent1_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nxt-agent1`
+    agent2_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nxt-agent2`
+    echo "##You can set a broswer proxy to $agent1_ip:8081 to send traffic via nextensio##"
+    echo "##OR You can set a broswer proxy to $agent2_ip:8081 to send traffic via nextensio##"
+    ;;
+*reset-conn)
+    source $tmpdir/environment
+    docker kill nxt-default; docker rm nxt-default
+    docker kill nxt-kismis-ONE; docker rm nxt-kismis-ONE
+    docker kill nxt-kismis-TWO; docker rm nxt-kismis-TWO
+    docker container prune -f
+    create_agent nxt-default false default@nextensio.net 127.0.0.1 foobar.com default-internet
+    create_agent nxt-kismis-ONE false v1.kismis@nextensio.net 127.0.0.1 kismis.org v1-kismis-org
+    create_agent nxt-kismis-TWO false v2.kismis@nextensio.net 127.0.0.1 kismis.org v2-kismis-org
+    ;;
+*) 
+    main remote
+    ;;
+esac
 

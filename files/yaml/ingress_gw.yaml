@@ -9,8 +9,11 @@ spec:
   servers:
   - port:
       number: 443
-      name: http-nextensio-agent
-      protocol: HTTP
+      name: https-nextensio-agent
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: gw-credential
     hosts:
     - "REPLACE_GW"
   - port:
