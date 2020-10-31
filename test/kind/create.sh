@@ -10,6 +10,7 @@
 tmpdir=/tmp/nextensio-kind
 kubectl=$tmpdir/kubectl
 istioctl=$tmpdir/istioctl
+helm=$tmpdir/linux-amd64/helm
 
 function download_images {
     docker pull registry.gitlab.com/nextensio/ux/ux-deploy:latest
@@ -30,6 +31,10 @@ function create_controller {
     $kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
     $kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
     $kubectl apply -f https://raw.githubusercontent.com/haproxytech/kubernetes-ingress/master/deploy/haproxy-ingress.yaml
+    $kubectl delete storageclass standard
+    $helm repo add rimusz https://charts.rimusz.net
+    $helm repo update
+    $helm upgrade --install hostpath-provisioner --namespace kube-system rimusz/hostpath-provisioner
 }
 
 function bootstrap_controller {
@@ -176,6 +181,10 @@ function create_agent {
 }
 
 function create_all {
+    # delete existing clusters
+    kind delete cluster --name testa
+    kind delete cluster --name testc
+    kind delete cluster --name controller
     # Create a root CA
     openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:2048 -subj '/O=Nextensio Gateway/CN=gateway.*.nextensio.net' \
         -keyout $tmpdir/rootca.key -out $tmpdir/rootca.crt
@@ -266,6 +275,11 @@ function main {
     curl -fsL https://github.com/istio/istio/releases/download/1.6.4/istioctl-1.6.4-linux-amd64.tar.gz -o $tmpdir/istioctl.tgz
     tar -xvzf $tmpdir/istioctl.tgz -C $tmpdir/
     chmod +x $tmpdir/istioctl
+    rm $tmpdir/istioctl.tgz
+    curl -fsL https://get.helm.sh/helm-v3.4.0-linux-amd64.tar.gz -o $tmpdir/helm.tgz
+    tar -zxvf $tmpdir/helm.tgz -C $tmpdir/
+    chmod +x $tmpdir/linux-amd64/helm
+    rm $tmpdir/helm.tgz
     # Create everything!
     create_all
     # Display and save environment information
