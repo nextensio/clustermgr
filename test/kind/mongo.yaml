@@ -17,6 +17,8 @@
   metadata:
     # namespace: mongo
     name: mongodb-0-service
+    annotations:
+      metallb.universe.tf/allow-shared-ip: shared
     labels:
       run: mongodb-0-service
   spec:
@@ -24,6 +26,7 @@
     - port: 27017
       targetPort: 27017
       protocol: TCP
+    type: LoadBalancer
     selector:
       service: mongodb-0
 ---
@@ -82,13 +85,16 @@
   metadata:
     # namespace: mongo
     name: mongodb-1-service
+    annotations:
+      metallb.universe.tf/allow-shared-ip: shared
     labels:
       run: mongodb-1-service
   spec:
     ports:
-    - port: 27017
+    - port: 27018
       targetPort: 27017
       protocol: TCP
+    type: LoadBalancer
     selector:
       service: mongodb-1
 ---
@@ -147,13 +153,16 @@
   metadata:
     # namespace: mongo
     name: mongodb-2-service
+    annotations:
+      metallb.universe.tf/allow-shared-ip: shared
     labels:
       run: mongodb-2-service
   spec:
     ports:
-    - port: 27017
+    - port: 27019
       targetPort: 27017
       protocol: TCP
+    type: LoadBalancer
     selector:
       service: mongodb-2
 ---

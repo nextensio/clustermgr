@@ -46,6 +46,7 @@ function bootstrap_controller {
     cp controller.yaml $tmpf
     sed -i "s/REPLACE_SELF_NODE_IP/$my_ip/g" $tmpf
     $kubectl apply -f $tmpf
+    $kubectl apply -f mongo.yaml
 }
 
 # Create kind clusters for testa and testc
