@@ -196,19 +196,20 @@ function create_all {
     kind delete cluster --name testa
     kind delete cluster --name testc
     kind delete cluster --name controller
+
     # Create a root CA
     openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:2048 -subj '/O=Nextensio Gateway/CN=gateway.*.nextensio.net' \
         -keyout $tmpdir/rootca.key -out $tmpdir/rootca.crt
     create_controller
+    # Find controller ip address
+    ctrl_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' controller-control-plane`
+    bootstrap_controller $ctrl_ip
+
     create_cluster testa
     create_cluster testc
-
-    # Find out ip addresses of controller, testa cluster and testc cluster
+    # Find out ip addresses of testa cluster and testc cluster
     testa_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' testa-control-plane`
     testc_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' testc-control-plane`
-    ctrl_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' controller-control-plane`
-
-    bootstrap_controller $ctrl_ip
 
     # Create dns entries inside kubernetes (coredns) for the gateway hostnames
     tmpf=$tmpdir/coredns.yaml
