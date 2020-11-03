@@ -19,6 +19,21 @@ data:
         reload
         loadbalance
     }
+    mongodb-0-service.default.svc.cluster.local {
+        hosts {
+            REPLACE_CONTROLLER_IP mongodb-0-service.default.svc.cluster.local
+        }
+    }
+    mongodb-1-service.default.svc.cluster.local {
+        hosts {
+            REPLACE_CONTROLLER_IP mongodb-1-service.default.svc.cluster.local
+        }
+    }
+    mongodb-2-service.default.svc.cluster.local {
+        hosts {
+            REPLACE_CONTROLLER_IP mongodb-2-service.default.svc.cluster.local
+        }
+    }
     nextensio.net {
         hosts {
             REPLACE_NODE1_IP REPLACE_NODE1_NAME

@@ -29,5 +29,5 @@ spec:
           - name: MY_WAN_IP
             value: "REPLACE_SELF_NODE_IP"
           - name: MY_MONGO_URI
-            value: "mongodb://REPLACE_CONTROLLER_IP:27017/"
+            value: "mongodb://REPLACE_CONTROLLER_IP:27017,REPLACE_CONTROLLER_IP:27018,REPLACE_CONTROLLER_IP:27019/"
 

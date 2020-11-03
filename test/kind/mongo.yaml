@@ -17,6 +17,8 @@
   metadata:
     # namespace: mongo
     name: mongodb-0-service
+    annotations:
+      metallb.universe.tf/allow-shared-ip: shared
     labels:
       run: mongodb-0-service
   spec:
@@ -24,6 +26,7 @@
     - port: 27017
       targetPort: 27017
       protocol: TCP
+    type: LoadBalancer
     selector:
       service: mongodb-0
 ---
@@ -37,7 +40,7 @@
       service: mongodb-0
   spec:
     containers:
-    - image: mtlbillyfong/mongodb-replica-set:20200330-stable-1
+    - image: gopakumarce/mongodb-replica-set:20200330-stable-1
       name: mongodb-0
       env:
       - name: "MONGO_INITDB_ROOT_USERNAME"
@@ -82,13 +85,16 @@
   metadata:
     # namespace: mongo
     name: mongodb-1-service
+    annotations:
+      metallb.universe.tf/allow-shared-ip: shared
     labels:
       run: mongodb-1-service
   spec:
     ports:
-    - port: 27017
+    - port: 27018
       targetPort: 27017
       protocol: TCP
+    type: LoadBalancer
     selector:
       service: mongodb-1
 ---
@@ -102,7 +108,7 @@
       service: mongodb-1
   spec:
     containers:
-    - image: mtlbillyfong/mongodb-replica-set:20200330-stable-1
+    - image: gopakumarce/mongodb-replica-set:20200330-stable-1
       name: mongodb-1
       env:
       - name: "MONGO_INITDB_ROOT_USERNAME"
@@ -147,13 +153,16 @@
   metadata:
     # namespace: mongo
     name: mongodb-2-service
+    annotations:
+      metallb.universe.tf/allow-shared-ip: shared
     labels:
       run: mongodb-2-service
   spec:
     ports:
-    - port: 27017
+    - port: 27019
       targetPort: 27017
       protocol: TCP
+    type: LoadBalancer
     selector:
       service: mongodb-2
 ---
@@ -167,7 +176,7 @@
       service: mongodb-2
   spec:
     containers:
-    - image: mtlbillyfong/mongodb-replica-set:20200330-stable-1
+    - image: gopakumarce/mongodb-replica-set:20200330-stable-1
       name: mongodb-2
       env:
       - name: "MONGO_INITDB_ROOT_USERNAME"

@@ -46,6 +46,7 @@ function bootstrap_controller {
     cp controller.yaml $tmpf
     sed -i "s/REPLACE_SELF_NODE_IP/$my_ip/g" $tmpf
     $kubectl apply -f $tmpf
+    $kubectl apply -f mongo.yaml
 }
 
 # Create kind clusters for testa and testc
@@ -119,6 +120,7 @@ function bootstrap_cluster {
     # $tmpdir/coredns.yaml has been created before this is called
     cp $tmpdir/coredns.yaml $tmpf
     sed -i "s/REPLACE_CONSUL_DNS/$consul_dns/g" $tmpf
+    sed -i "s/REPLACE_CONTROLLER_IP/$ctrl_ip/g" $tmpf
     $kubectl replace -n kube-system -f $tmpf
 }
 
@@ -223,12 +225,14 @@ function create_all {
     $kubectl config use-context kind-controller
     ctrlpod=`$kubectl get pods -n default | grep nextensio-controller | grep Running`;
     while [ -z "$ctrlpod" ]; do
-      echo "Waiting for controller pod to be Running";
       ctrlpod=`$kubectl get pods -n default | grep nextensio-controller | grep Running`;
+      echo "Waiting for controller pod to be Running";
       sleep 5;
     done
     # configure the controller with some default customer/tenant information
+    echo "Configuring the controller, may take a few seconds"
     ./ctrl.py $ctrl_ip $tmpdir
+    echo "Controller config done, going to create agents and connectors"
 
     docker kill nxt-agent1; docker rm nxt-agent1
     docker kill nxt-agent2; docker rm nxt-agent2
