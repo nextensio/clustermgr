@@ -27,10 +27,13 @@ function create_controller {
     kind load docker-image registry.gitlab.com/nextensio/ux/ux-deploy:latest --name controller
     kind load docker-image registry.gitlab.com/nextensio/controller/controller-test:latest --name controller
 
+    # metallb as a loadbalancer to map services to externally accessible IPs
     $kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
     $kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
     $kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
+    # haproxy as an "ingress" mechanism - we dont use istio here, thats an overkill
     $kubectl apply -f https://raw.githubusercontent.com/haproxytech/kubernetes-ingress/master/deploy/haproxy-ingress.yaml
+    # hostpath-provisioner for mongodb pods to get persistent storage from kubernetes host disk
     $kubectl delete storageclass standard
     $helm repo add rimusz https://charts.rimusz.net
     $helm repo update
@@ -53,7 +56,7 @@ function bootstrap_controller {
 function create_cluster {
     cluster=$1
 
-    # Create a docker-in-docker kubernetes cluster with one master and one worker
+    # Create a docker-in-docker kubernetes cluster with a single node (control-plane) running everything
     kind create cluster --config ./kind-config.yaml --name $cluster
 
     # This is NOT the right thing to do in real deployment, either we should limit the 
@@ -65,8 +68,11 @@ function create_cluster {
         --user=kubelet \
         --group=system:serviceaccounts
 
-    # Install istio and metallb
-    $istioctl manifest apply --set profile=demo --set values.global.proxy.accessLogFile="/dev/stdout"
+    # Install istio. This is nothing but the demo.yaml in the istio bundle, with addonComponents
+    # prometheus, kiali, grafana, tracing all set to false. 
+    $istioctl manifest apply -f ./istio.yaml
+
+    # Install metallb. metallb exposes services inside the cluster via external IP addresses
     $kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
     $kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
     $kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
@@ -90,7 +96,7 @@ function bootstrap_cluster {
 
     $kubectl create -n istio-system secret tls gw-credential --key=$tmpdir/$cluster-gw.key --cert=$tmpdir/$cluster-gw.crt
 
-    # Deploy the clustr manager "mel"
+    # Deploy the cluster manager "mel"
     tmpf=$tmpdir/$cluster-mel.yaml
     cp mel.yaml $tmpf
     sed -i "s/REPLACE_CLUSTER/$cluster/g" $tmpf
@@ -98,7 +104,7 @@ function bootstrap_cluster {
     sed -i "s/REPLACE_CONTROLLER_IP/$ctrl_ip/g" $tmpf
     $kubectl apply -f $tmpf
 
-    # Install loadbalancer to direct traffic to istio ingress gateway
+    # Install loadbalancer to attract traffic to istio ingress gateway via external IP (docker contaier IP)
     tmpf=$tmpdir/$cluster-metallb.yaml
     cp metallb.yaml $tmpf
     sed -i "s/REPLACE_SELF_NODE_IP/$my_ip/g" $tmpf
@@ -125,6 +131,7 @@ function bootstrap_cluster {
 }
 
 # Setup prepared query so that consul forwards the dns lookup to multiple DCs
+# TODO: What if consul pod crashes, do we have to reapply these rules or consul saves it ?
 function consul_query_config {
     cluster=$1
 
@@ -161,6 +168,8 @@ function consul_join {
       consul=`$kubectl get pods -n consul-system | grep consul-server | grep Running`;
       sleep 5;
     done
+    # TODO: Again, if consul crashes, will it remember this join config and automatically
+    # rejoin, or we have to monitor and rejoin ourselves ?
     $kubectl exec -it testc-consul-server-0 -n consul-system -- consul join -wan $testa_ip
 }
 
@@ -195,8 +204,8 @@ function create_all {
     create_cluster testc
 
     # Find out ip addresses of controller, testa cluster and testc cluster
-    testa_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' testa-worker`
-    testc_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' testc-worker`
+    testa_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' testa-control-plane`
+    testc_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' testc-control-plane`
     ctrl_ip=`docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' controller-control-plane`
 
     bootstrap_controller $ctrl_ip
