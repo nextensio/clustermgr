@@ -453,7 +453,13 @@ func main() {
 		time.Sleep(1 * time.Second)
 	}
 
-	DBConnect()
+	for {
+		if DBConnect() == true {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
 	//TODO: This for loop will go away once we register with mongo for change notifications
 	for {
 		createTenants()

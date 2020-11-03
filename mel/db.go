@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 
 	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
@@ -29,27 +28,30 @@ type Namespace struct {
 	Version  int                `json:"version" bson:"version"`
 }
 
-func DBConnect() {
+func DBConnect() bool {
 	var err error
 	dbClient, err = mongo.NewClient(options.Client().ApplyURI(MyMongo))
 	if err != nil {
-		log.Fatal(err)
+		glog.Error("Database client create failed")
+		return false
 	}
 
 	err = dbClient.Connect(context.TODO())
 	if err != nil {
-		glog.Fatal("Failed Database Init")
-		return
+		glog.Error("Database connect failed")
+		return false
 	}
 	err = dbClient.Ping(context.TODO(), readpref.Primary())
 	if err != nil {
-		glog.Fatal(err)
-		return
+		glog.Error("Database ping failed")
+		return false
 	}
 	clusterDB = dbClient.Database("ClusterDB")
 	namespaceCltn = clusterDB.Collection("NxtNamespaces")
 	usersCltn = clusterDB.Collection("NxtUsers")
 	serviceCltn = clusterDB.Collection("NxtServices")
+
+	return true
 }
 
 func DBFindNamespace(id primitive.ObjectID) *Namespace {
