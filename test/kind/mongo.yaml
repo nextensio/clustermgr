@@ -40,7 +40,7 @@
       service: mongodb-0
   spec:
     containers:
-    - image: mtlbillyfong/mongodb-replica-set:20200330-stable-1
+    - image: gopakumarce/mongodb-replica-set:20200330-stable-1
       name: mongodb-0
       env:
       - name: "MONGO_INITDB_ROOT_USERNAME"
@@ -108,7 +108,7 @@
       service: mongodb-1
   spec:
     containers:
-    - image: mtlbillyfong/mongodb-replica-set:20200330-stable-1
+    - image: gopakumarce/mongodb-replica-set:20200330-stable-1
       name: mongodb-1
       env:
       - name: "MONGO_INITDB_ROOT_USERNAME"
@@ -176,7 +176,7 @@
       service: mongodb-2
   spec:
     containers:
-    - image: mtlbillyfong/mongodb-replica-set:20200330-stable-1
+    - image: gopakumarce/mongodb-replica-set:20200330-stable-1
       name: mongodb-2
       env:
       - name: "MONGO_INITDB_ROOT_USERNAME"

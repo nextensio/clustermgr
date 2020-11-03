@@ -137,27 +137,32 @@ def create_cert():
 
 if __name__ == '__main__':
     while not is_controller_up():
+        print('Controller not up, waiting ...')
         time.sleep(5)
 
     ok = create_gateway("gateway.testa.nextensio.net")
     while not ok:
+        print('Gateway creation failed, retrying ...')
         time.sleep(1)
         ok = create_gateway("gateway.testa.nextensio.net")
 
     ok = create_gateway("gateway.testc.nextensio.net")
     while not ok:
+        print('Gateway creation failed, retrying ...')
         time.sleep(1)
         ok = create_gateway("gateway.testc.nextensio.net")
 
     ok = create_tenant("Test", ["gateway.testa.nextensio.net","gateway.testc.nextensio.net"], 
                        "registry.gitlab.com/nextensio/cluster/minion:latest", 5)
     while not ok:
+        print('Tenant creation failed, retrying ...')
         time.sleep(1)
         ok = create_tenant("Test", ["gateway.testa.nextensio.net","gateway.testc.nextensio.net"], 
                            "registry.gitlab.com/nextensio/cluster/minion:latest", 5)
 
     ok, tenants = get_tenants()
     while not ok:
+        print('Tenant creation failed, retrying ...')
         time.sleep(1)
         ok, tenants = get_tenants()
 
@@ -167,61 +172,73 @@ if __name__ == '__main__':
 
     ok = create_user('test1@nextensio.net', tenant, 'Test User1', 'test1@nextensio.net', ['test1-nextensio-net'], 'gateway.testa.nextensio.net')
     while not ok:
+        print('User creation failed, retrying ...')
         time.sleep(1)
         ok = create_user('test1@nextensio.net', tenant, 'Test User1', 'test1@nextensio.net', ['test1-nextensio-net'], 'gateway.testa.nextensio.net')
 
     ok = create_user_attr('test1@nextensio.net', tenant, 'employee', 'IC', 50, ['ABU,BBU'], ['engineering','sales'])
     while not ok:
+        print('UserAttr creation failed, retrying ...')
         time.sleep(1)
         ok = create_user_attr('test1@nextensio.net', tenant, 'employee', 'IC', 50, ['ABU,BBU'], ['engineering','sales'])
     
     ok = create_user('test2@nextensio.net', tenant, 'Test User2', 'test2@nextensio.net', ['test2-nextensio-net'], 'gateway.testa.nextensio.net')
     while not ok:
+        print('User creation failed, retrying ...')
         time.sleep(1)
         ok = create_user('test2@nextensio.net', tenant, 'Test User2', 'test2@nextensio.net', ['test2-nextensio-net'], 'gateway.testa.nextensio.net')
     
     ok = create_user_attr('test2@nextensio.net', tenant, 'employee', 'IC', 50, ['ABU,BBU'], ['engineering','sales'])
     while not ok:
+        print('UserAttr creation failed, retrying ...')
         time.sleep(1)
         ok = create_user_attr('test2@nextensio.net', tenant, 'employee', 'IC', 50, ['ABU,BBU'], ['engineering','sales'])
 
     ok = create_bundle('default@nextensio.net', tenant, 'Default Internet Route', ['default-internet'], 'gateway.testc.nextensio.net')
     while not ok:
+        print('Bundle creation failed, retrying ...')
         time.sleep(1)
         ok = create_bundle('default@nextensio.net', tenant, 'Default Internet Route', ['default-internet'], 'gateway.testc.nextensio.net')
 
     ok = create_bundle_attr('default@nextensio.net', tenant, ['ABU,BBU'], ['engineering','sales'], 1, 1, "allowed")
     while not ok:
+        print('BundleAttr creation failed, retrying ...')
         time.sleep(1)
         ok = create_bundle_attr('default@nextensio.net', tenant, ['ABU,BBU'], ['engineering','sales'], 1, 1, "allowed")
 
     ok = create_bundle('v1.kismis@nextensio.net', tenant, 'Kismis Version ONE', ['v1.kismis.org'], 'gateway.testc.nextensio.net')
     while not ok:
+        print('Bundle creation failed, retrying ...')
         time.sleep(1)
         ok = create_bundle('v1.kismis@nextensio.net', tenant, 'Kismis Version ONE', ['v1.kismis.org'], 'gateway.testc.nextensio.net')
 
     ok = create_bundle_attr('v1.kismis@nextensio.net', tenant, ['ABU,BBU'], ['engineering','sales'], 1, 1, "allowed")
     while not ok:
+        print('BundleAttr creation failed, retrying ...')
         time.sleep(1)
         ok = create_bundle_attr('v1.kismis@nextensio.net', tenant, ['ABU,BBU'], ['engineering','sales'], 1, 1, "allowed")
 
     ok = create_bundle('v2.kismis@nextensio.net', tenant, 'Kismis Version ONE', ['v2.kismis.org'], 'gateway.testc.nextensio.net')
     while not ok:
+        print('Bundle creation failed, retrying ...')
         time.sleep(1)
         ok = create_bundle('v2.kismis@nextensio.net', tenant, 'Kismis Version ONE', ['v2.kismis.org'], 'gateway.testc.nextensio.net')
         
     ok = create_bundle_attr('v2.kismis@nextensio.net', tenant, ['ABU,BBU'], ['engineering','sales'], 1, 1, "allowed")
     while not ok:
+        print('BundleAttr creation failed, retrying ...')
         time.sleep(1)
         ok = create_bundle_attr('v2.kismis@nextensio.net', tenant, ['ABU,BBU'], ['engineering','sales'], 1, 1, "allowed")
 
     ok = create_route(tenant, 'test1@nextensio.net', 'kismis.org', 'v1')
     while not ok:
+        print('Route creation failed, retrying ...')
         time.sleep(1)
         ok = create_route(tenant, 'test1@nextensio.net', 'kismis.org', 'v1')
         
     ok = create_route(tenant, 'test2@nextensio.net', 'kismis.org', 'v2')
     while not ok:
+        print('Route creation failed, retrying ...')
         time.sleep(1)
         ok = create_route(tenant, 'test2@nextensio.net', 'kismis.org', 'v2')
 
@@ -229,10 +246,12 @@ if __name__ == '__main__':
         rego = file.read()
     ok = create_policy(tenant, 'AccessPolicy', rego)
     while not ok:
+        print('Policy creation failed, retrying ...')
         time.sleep(1)
         ok = create_policy(tenant, 'AccessPolicy', rego)
 
     ok = create_cert()
     while not ok:
+        print('CERT creation failed, retrying ...')
         time.sleep(1)
         ok = create_cert()
