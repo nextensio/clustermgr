@@ -186,7 +186,7 @@ function create_agent {
         -e NXT_GW_2_IP=$testc_ip -e NXT_GW_2_NAME=gateway.testc.nextensio.net \
         -e NXT_GW_3_IP=$etchost_ip -e NXT_GW_3_NAME=$etchost_name \
         -e NXT_USERNAME=$username -e NXT_PWD=LetMeIn123 \
-        -e NXT_AGENT=$agent -e NXT_CONTROLLER=$ctrl_ip \
+        -e NXT_AGENT=$agent -e NXT_CONTROLLER=$ctrl_ip:8080 \
         -e NXT_AGENT_NAME=$name -e NXT_SERVICES=$services \
         --network kind --name $name registry.gitlab.com/nextensio/agent/agent-deploy:latest
 }

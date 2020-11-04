@@ -23,7 +23,6 @@ spec:
         tty: true 
         ports:
         - containerPort: 8080
-        - containerPort: 27017
         env:
           - name: NXT_READONLY
             value: "false"
