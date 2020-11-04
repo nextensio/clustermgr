@@ -28,9 +28,9 @@ def create_gateway(gw):
         pass
         return False
 
-def create_tenant(name, gws, image, pods):
+def create_tenant(name, gws, domains, image, pods):
     data = {'curid': 'unknown', 'name': name, 'gateways': gws, 
-            'image': image, 'pods': pods}
+            'domains': domains, 'image': image, 'pods': pods}
     try:
         ret = requests.post(url+"addtenant", json=data)
         if ret.status_code != 200 or ret.json()['Result'] != "ok":
@@ -153,12 +153,12 @@ if __name__ == '__main__':
         ok = create_gateway("gateway.testc.nextensio.net")
 
     ok = create_tenant("Test", ["gateway.testa.nextensio.net","gateway.testc.nextensio.net"], 
-                       "registry.gitlab.com/nextensio/cluster/minion:latest", 5)
+                       ["kismis.org"], "registry.gitlab.com/nextensio/cluster/minion:latest", 5)
     while not ok:
         print('Tenant creation failed, retrying ...')
         time.sleep(1)
         ok = create_tenant("Test", ["gateway.testa.nextensio.net","gateway.testc.nextensio.net"], 
-                           "registry.gitlab.com/nextensio/cluster/minion:latest", 5)
+                           ["kismis.org"], "registry.gitlab.com/nextensio/cluster/minion:latest", 5)
 
     ok, tenants = get_tenants()
     while not ok:
