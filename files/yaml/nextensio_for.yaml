@@ -15,6 +15,6 @@ spec:
           prefix: REPLACE_APP_NAME
     route:
     - destination:
-        host: REPLACE_POD_NAME-http-internal
+        host: REPLACE_POD_NAME-in
         port:
           number: 80
