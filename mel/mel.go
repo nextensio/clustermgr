@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -107,6 +108,36 @@ func createNamespace(n Namespace) error {
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		glog.Error("Cannot enable istio injection for namespace ", n.ID.Hex(), ": ", string(out))
+		return err
+	}
+
+	// Copy the docker keys to the new namespace
+	file := "/tmp/" + n.ID.Hex() + "-regcred.yaml"
+	cmd = exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		glog.Error("Cannot read docker credentials", err.Error())
+		return err
+	}
+	regcred := string(out)
+	reNspc := regexp.MustCompile(`namespace: default`)
+	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+n.ID.Hex())
+
+	// Replace some junk lines to make it legit yaml
+	re := regexp.MustCompile("(?m)[[:space:]]+(creationTimestamp:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+	re = regexp.MustCompile("(?m)[[:space:]]+(time:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+	re = regexp.MustCompile("(?m)[[:space:]]+(uid:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+	re = regexp.MustCompile("(?m)[[:space:]]+(resourceVersion:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+
+	if yamlFile(file, nspcRepl) == "" {
+		return errors.New("yaml file")
+	}
+	err = kubectlApply(file)
+	if err != nil {
 		return err
 	}
 
