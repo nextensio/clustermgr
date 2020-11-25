@@ -44,3 +44,5 @@ spec:
             value: REPLACE_MY_DNS
           - name: MY_MONGO_URI
             value: "REPLACE_MONGO"
+      imagePullSecrets:
+      - name: regcred
