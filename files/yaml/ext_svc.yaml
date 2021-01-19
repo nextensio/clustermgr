@@ -8,8 +8,8 @@ spec:
   - REPLACE_GW
   ports:
   - number: 80
-    name: http
-    protocol: HTTP
+    name: http2
+    protocol: HTTP2
   resolution: DNS
 ---
 apiVersion: networking.istio.io/v1alpha3
