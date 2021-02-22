@@ -17,4 +17,4 @@ spec:
     - destination:
         host: REPLACE_POD_NAME-http-outside
         port:
-          number: 8002
+          number: 443

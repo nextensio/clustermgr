@@ -22,7 +22,7 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
-        - containerPort: 8002
+        - containerPort: 443
         env:
           - name: MY_NODE_NAME
             valueFrom:

@@ -19,7 +19,7 @@ spec:
   selector:
     app: REPLACE_POD_NAME
   ports:
-  - port: 8002
+  - port: 443
     name: http-out
 ---
 apiVersion: networking.istio.io/v1alpha3

@@ -18,7 +18,10 @@ spec:
     - "REPLACE_GW"
   - port:
       number: 80
-      name: http2-nextensio-for
-      protocol: HTTP2
+      name: https-internal
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: gw-credential
     hosts:
-    - "REPLACE_GW"
+    - "*"

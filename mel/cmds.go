@@ -38,7 +38,7 @@ func Cmdline() bool {
 	} else if *replEgw == true {
 		fmt.Println(GetEgressGw(*namespace, *gw))
 	} else if *replEgwDst == true {
-		fmt.Println(GetEgressGwDst(*namespace))
+		fmt.Println(GetEgressGwDst(*namespace, *gw))
 	} else if *replExt == true {
 		fmt.Println(GetExtSvc(*namespace, *gw))
 	} else if *replConsul == true {

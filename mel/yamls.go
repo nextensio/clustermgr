@@ -86,15 +86,20 @@ func GetEgressGw(namespace string, gateway string) string {
 	return svcRepl
 }
 
-func GetEgressGwDst(namespace string) string {
+func GetEgressGwDst(namespace string, gateway string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/egress_gw_dest.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
+    svc := strings.Replace(gateway, ".", "-", -1)
 	dest := string(content)
+    reGw := regexp.MustCompile(`REPLACE_GW`)
+    gwRepl := reGw.ReplaceAllString(dest, gateway)
 	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
-	nspcRepl := reNspc.ReplaceAllString(dest, namespace)
-	return nspcRepl
+	nsRepl := reNspc.ReplaceAllString(gwRepl, namespace)
+    reSvc := regexp.MustCompile(`REPLACE_SVC_NAME`)
+    svcRepl := reSvc.ReplaceAllString(nsRepl, svc)
+	return svcRepl
 }
 
 func GetExtSvc(namespace string, gateway string) string {

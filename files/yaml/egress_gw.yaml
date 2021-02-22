@@ -1,7 +1,6 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
-  namespace: REPLACE_NAMESPACE
   name: nextensio-egressgateway-REPLACE_SVC_NAME
 spec:
   selector:
@@ -9,7 +8,7 @@ spec:
   servers:
   - port:
       number: 80
-      name: http2
-      protocol: HTTP2
+      name: http
+      protocol: HTTP
     hosts:
     - "REPLACE_GW"

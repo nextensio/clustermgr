@@ -186,14 +186,14 @@ func createConsul() error {
 	return nil
 }
 
-func generateEgressGwDest(n Namespace) string {
-	file := "/tmp/egwdst-" + n.ID.Hex() + ".yaml"
-	yaml := GetEgressGwDst(n.ID.Hex())
+func generateEgressGwDest(n Namespace, gateway string) string {
+	file := "/tmp/egwdst-" + n.ID.Hex() + "-" + gateway + ".yaml"
+	yaml := GetEgressGwDst(n.ID.Hex(), gateway)
 	return yamlFile(file, yaml)
 }
 
-func createEgressGwDest(n Namespace) error {
-	file := generateEgressGwDest(n)
+func createEgressGwDest(n Namespace, gateway string) error {
+	file := generateEgressGwDest(n, gateway)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -257,6 +257,10 @@ func createEgressGws(n Namespace) error {
 		if err != nil {
 			return err
 		}
+        err = createEgressGwDest(n, gw)
+        if err != nil {
+            return err
+        }
 	}
 
 	return nil
@@ -313,12 +317,6 @@ func createTenants() {
 		}
 		for {
 			if createEgressGws(n) == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-		for {
-			if createEgressGwDest(n) == nil {
 				break
 			}
 			time.Sleep(1 * time.Second)
