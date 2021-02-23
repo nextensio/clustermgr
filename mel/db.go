@@ -13,20 +13,10 @@ import (
 
 var dbClient *mongo.Client
 var clusterDB *mongo.Database
+var nxtGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
 var usersCltn *mongo.Collection
 var serviceCltn *mongo.Collection
-
-// NOTE: The bson decoder will not work if the structure field names dont start with upper case
-type Namespace struct {
-	ID       primitive.ObjectID `json:"_id" bson:"_id"`
-	Name     string             `json:"name" bson:"name"`
-	Gateways []string           `json:"gateways" bson:"gateways"`
-	Image    string             `json:"image" bson:"image"`
-	Database string             `json:"database" bson:"database"`
-	Pods     int                `json:"pods" bson:"pods"`
-	Version  int                `json:"version" bson:"version"`
-}
 
 func DBConnect() bool {
 	var err error
@@ -47,11 +37,43 @@ func DBConnect() bool {
 		return false
 	}
 	clusterDB = dbClient.Database("ClusterDB")
+	nxtGwCltn = clusterDB.Collection("NxtGateways")
 	namespaceCltn = clusterDB.Collection("NxtNamespaces")
 	usersCltn = clusterDB.Collection("NxtUsers")
 	serviceCltn = clusterDB.Collection("NxtServices")
 
 	return true
+}
+
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type NxtGateway struct {
+	Name    string `json:"name" bson:"name"`
+	Version int    `json:"version" bson:"version"`
+}
+
+func DBFindAllGateways() []NxtGateway {
+	var gateways []NxtGateway
+
+	cursor, err := nxtGwCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &gateways)
+	if err != nil {
+		return nil
+	}
+
+	return gateways
+}
+
+// NOTE: The bson decoder will not work if the structure field names dont start with upper case
+type Namespace struct {
+	ID       primitive.ObjectID `json:"_id" bson:"_id"`
+	Name     string             `json:"name" bson:"name"`
+	Image    string             `json:"image" bson:"image"`
+	Database string             `json:"database" bson:"database"`
+	Pods     int                `json:"pods" bson:"pods"`
+	Version  int                `json:"version" bson:"version"`
 }
 
 func DBFindNamespace(id primitive.ObjectID) *Namespace {

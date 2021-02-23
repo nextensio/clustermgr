@@ -12,6 +12,7 @@ COPY mel .
 
 RUN go get -d -v ./... \
     && go install -v ./... \
+    && \rm -r -f /go/src/nextensio/* \
     && \rm -r -f /go/pkg/mod \
     && \rm -r -f /go/pkg/sumdb
 

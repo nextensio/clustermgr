@@ -5,7 +5,7 @@ metadata:
   name: agent-vs-REPLACE_AGENT_NAME
 spec:
   gateways:
-  - nextensio-ingressgateway
+  - default/nextensio-ingressgateway
   hosts:
   - "REPLACE_GW"
   http:

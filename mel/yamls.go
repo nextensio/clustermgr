@@ -57,7 +57,7 @@ func GetService(namespace string, podname string) string {
 	return podRepl
 }
 
-func GetIngressGw(namespace string, gateway string) string {
+func GetIngressGw(gateway string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/ingress_gw.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -65,12 +65,10 @@ func GetIngressGw(namespace string, gateway string) string {
 	ingressGw := string(content)
 	reGw := regexp.MustCompile(`REPLACE_GW`)
 	gwRepl := reGw.ReplaceAllString(ingressGw, gateway)
-	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
-	nsRepl := reNspc.ReplaceAllString(gwRepl, namespace)
-	return nsRepl
+	return gwRepl
 }
 
-func GetEgressGw(namespace string, gateway string) string {
+func GetEgressGw(gateway string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/egress_gw.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -79,30 +77,26 @@ func GetEgressGw(namespace string, gateway string) string {
 	egressGw := string(content)
 	reGw := regexp.MustCompile(`REPLACE_GW`)
 	gwRepl := reGw.ReplaceAllString(egressGw, gateway)
-	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
-	nsRepl := reNspc.ReplaceAllString(gwRepl, namespace)
 	reSvc := regexp.MustCompile(`REPLACE_SVC_NAME`)
-	svcRepl := reSvc.ReplaceAllString(nsRepl, svc)
+	svcRepl := reSvc.ReplaceAllString(gwRepl, svc)
 	return svcRepl
 }
 
-func GetEgressGwDst(namespace string, gateway string) string {
+func GetEgressGwDst(gateway string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/egress_gw_dest.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
-    svc := strings.Replace(gateway, ".", "-", -1)
+	svc := strings.Replace(gateway, ".", "-", -1)
 	dest := string(content)
-    reGw := regexp.MustCompile(`REPLACE_GW`)
-    gwRepl := reGw.ReplaceAllString(dest, gateway)
-	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
-	nsRepl := reNspc.ReplaceAllString(gwRepl, namespace)
-    reSvc := regexp.MustCompile(`REPLACE_SVC_NAME`)
-    svcRepl := reSvc.ReplaceAllString(nsRepl, svc)
+	reGw := regexp.MustCompile(`REPLACE_GW`)
+	gwRepl := reGw.ReplaceAllString(dest, gateway)
+	reSvc := regexp.MustCompile(`REPLACE_SVC_NAME`)
+	svcRepl := reSvc.ReplaceAllString(gwRepl, svc)
 	return svcRepl
 }
 
-func GetExtSvc(namespace string, gateway string) string {
+func GetExtSvc(gateway string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/ext_svc.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -111,10 +105,8 @@ func GetExtSvc(namespace string, gateway string) string {
 	extSvc := string(content)
 	reGw := regexp.MustCompile(`REPLACE_GW`)
 	gwRepl := reGw.ReplaceAllString(extSvc, gateway)
-	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
-	nsRepl := reNspc.ReplaceAllString(gwRepl, namespace)
 	reSvc := regexp.MustCompile(`REPLACE_SVC_NAME`)
-	svcRepl := reSvc.ReplaceAllString(nsRepl, svc)
+	svcRepl := reSvc.ReplaceAllString(gwRepl, svc)
 	return svcRepl
 }
 

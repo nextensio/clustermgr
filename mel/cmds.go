@@ -34,13 +34,13 @@ func Cmdline() bool {
 	}
 
 	if *replIgw == true {
-		fmt.Println(GetIngressGw(*namespace, *gw))
+		fmt.Println(GetIngressGw(*gw))
 	} else if *replEgw == true {
-		fmt.Println(GetEgressGw(*namespace, *gw))
+		fmt.Println(GetEgressGw(*gw))
 	} else if *replEgwDst == true {
-		fmt.Println(GetEgressGwDst(*namespace, *gw))
+		fmt.Println(GetEgressGwDst(*gw))
 	} else if *replExt == true {
-		fmt.Println(GetExtSvc(*namespace, *gw))
+		fmt.Println(GetExtSvc(*gw))
 	} else if *replConsul == true {
 		fmt.Println(GetConsul(*myip, *cluster))
 	} else if *replDeploy == true {

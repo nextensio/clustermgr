@@ -5,7 +5,7 @@ metadata:
   name: app-vs-REPLACE_APP_NAME
 spec:
   gateways:
-  - nextensio-ingressgateway
+  - default/nextensio-ingressgateway
   hosts:
   - "REPLACE_GW"
   http:

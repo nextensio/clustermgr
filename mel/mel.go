@@ -19,6 +19,7 @@ var MyYaml string
 var MyWanIP string
 var MyMongo string
 
+var gwVersion map[string]int
 var nspscVersion map[string]int
 var agentVersion map[string]int
 var svcVersion map[string]int
@@ -186,14 +187,14 @@ func createConsul() error {
 	return nil
 }
 
-func generateEgressGwDest(n Namespace, gateway string) string {
-	file := "/tmp/egwdst-" + n.ID.Hex() + "-" + gateway + ".yaml"
-	yaml := GetEgressGwDst(n.ID.Hex(), gateway)
+func generateEgressGwDest(gateway string) string {
+	file := "/tmp/egwdst-" + gateway + ".yaml"
+	yaml := GetEgressGwDst(gateway)
 	return yamlFile(file, yaml)
 }
 
-func createEgressGwDest(n Namespace, gateway string) error {
-	file := generateEgressGwDest(n, gateway)
+func createEgressGwDest(gateway string) error {
+	file := generateEgressGwDest(gateway)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -205,14 +206,14 @@ func createEgressGwDest(n Namespace, gateway string) error {
 	return nil
 }
 
-func generateEgressGw(n Namespace, gateway string) string {
-	file := "/tmp/egw-" + n.ID.Hex() + "-" + gateway + ".yaml"
-	yaml := GetEgressGw(n.ID.Hex(), gateway)
+func generateEgressGw(gateway string) string {
+	file := "/tmp/egw-" + gateway + ".yaml"
+	yaml := GetEgressGw(gateway)
 	return yamlFile(file, yaml)
 }
 
-func createEgressGw(n Namespace, gateway string) error {
-	file := generateEgressGw(n, gateway)
+func createEgressGw(gateway string) error {
+	file := generateEgressGw(gateway)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -224,14 +225,14 @@ func createEgressGw(n Namespace, gateway string) error {
 	return nil
 }
 
-func generateExtsvc(n Namespace, gateway string) string {
-	file := "/tmp/extsvc-" + n.ID.Hex() + "-" + gateway + ".yaml"
-	yaml := GetExtSvc(n.ID.Hex(), gateway)
+func generateExtsvc(gateway string) string {
+	file := "/tmp/extsvc-" + gateway + ".yaml"
+	yaml := GetExtSvc(gateway)
 	return yamlFile(file, yaml)
 }
 
-func createExtsvc(n Namespace, gateway string) error {
-	file := generateExtsvc(n, gateway)
+func createExtsvc(gateway string) error {
+	file := generateExtsvc(gateway)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -243,37 +244,31 @@ func createExtsvc(n Namespace, gateway string) error {
 	return nil
 }
 
-func createEgressGws(n Namespace) error {
-	for _, gw := range n.Gateways {
-		// Our own cluster, no egress rules for self!
-		if strings.Contains(gw, "gateway."+MyCluster+".nextensio.net") {
-			continue
-		}
-		err := createEgressGw(n, gw)
-		if err != nil {
-			return err
-		}
-		err = createExtsvc(n, gw)
-		if err != nil {
-			return err
-		}
-        err = createEgressGwDest(n, gw)
-        if err != nil {
-            return err
-        }
+func createEgressGws(gw string) error {
+	err := createEgressGw(gw)
+	if err != nil {
+		return err
+	}
+	err = createExtsvc(gw)
+	if err != nil {
+		return err
+	}
+	err = createEgressGwDest(gw)
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func generateIngressGw(n Namespace) string {
-	file := "/tmp/igw-" + n.ID.Hex() + ".yaml"
-	yaml := GetIngressGw(n.ID.Hex(), "gateway."+MyCluster+".nextensio.net")
+func generateIngressGw() string {
+	file := "/tmp/igw.yaml"
+	yaml := GetIngressGw("gateway." + MyCluster + ".nextensio.net")
 	return yamlFile(file, yaml)
 }
 
-func createIngressGw(n Namespace) error {
-	file := generateIngressGw(n)
+func createIngressGw() error {
+	file := generateIngressGw()
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -295,12 +290,6 @@ func createTenants() {
 		}
 		nspscVersion[n.ID.Hex()] = n.Version
 
-		// This customer doesnt have our cluster listed as a gateway
-		allGws := strings.Join(n.Gateways, ",")
-		if !strings.Contains(allGws, "gateway."+MyCluster+".nextensio.net") {
-			continue
-		}
-
 		for {
 			if createNamespace(n) == nil {
 				break
@@ -311,18 +300,6 @@ func createTenants() {
 		}
 		for {
 			if createDeploy(n) == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-		for {
-			if createEgressGws(n) == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-		for {
-			if createIngressGw(n) == nil {
 				break
 			}
 			time.Sleep(1 * time.Second)
@@ -393,11 +370,6 @@ func createAgents() {
 			glog.Error("User ", a.Uid, a.Tenant, " without parent tenant")
 			continue
 		}
-		// This customer doesnt have our cluster listed as a gateway
-		allGws := strings.Join(tenant.Gateways, ",")
-		if !strings.Contains(allGws, "gateway."+MyCluster+".nextensio.net") {
-			continue
-		}
 		for {
 			if createNxtConnect(a) == nil {
 				break
@@ -422,16 +394,39 @@ func createServices() {
 			glog.Error("Service ", s.Sid, " without parent tenant")
 			continue
 		}
-		// This customer doesnt have our cluster listed as a gateway
-		allGws := strings.Join(tenant.Gateways, ",")
-		if !strings.Contains(allGws, "gateway."+MyCluster+".nextensio.net") {
-			continue
-		}
+
 		for {
 			if createNxtFor(s) == nil {
 				break
 			}
 			time.Sleep(1 * time.Second)
+		}
+	}
+}
+
+func createGateways() {
+	gateways := DBFindAllGateways()
+	for _, gw := range gateways {
+		v, ok := gwVersion[gw.Name]
+		if ok && v == gw.Version {
+			continue
+		}
+		gwVersion[gw.Name] = gw.Version
+
+		if strings.Contains(gw.Name, "gateway."+MyCluster+".nextensio.net") {
+			for {
+				if createIngressGw() == nil {
+					break
+				}
+				time.Sleep(1 * time.Second)
+			}
+		} else {
+			for {
+				if createEgressGws(gw.Name) == nil {
+					break
+				}
+				time.Sleep(1 * time.Second)
+			}
 		}
 	}
 }
@@ -461,6 +456,7 @@ func main() {
 	//TODO: These versions will go away once we move to mongodb changeset
 	//notifications, this is a temporary poor man's hack to periodically poll
 	//mongo and apply only the changed ones
+	gwVersion = make(map[string]int)
 	nspscVersion = make(map[string]int)
 	agentVersion = make(map[string]int)
 	svcVersion = make(map[string]int)
@@ -491,6 +487,7 @@ func main() {
 
 	//TODO: This for loop will go away once we register with mongo for change notifications
 	for {
+		createGateways()
 		createTenants()
 		createAgents()
 		createServices()

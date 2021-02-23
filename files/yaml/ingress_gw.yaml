@@ -1,7 +1,6 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: Gateway
 metadata:
-  namespace: REPLACE_NAMESPACE
   name: nextensio-ingressgateway
 spec:
   selector:
