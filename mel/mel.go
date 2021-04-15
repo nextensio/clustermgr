@@ -263,7 +263,7 @@ func createEgressGws(gw string) error {
 
 func generateIngressGw() string {
 	file := "/tmp/igw.yaml"
-	yaml := GetIngressGw("gateway" + MyCluster + ".nextensio.net")
+	yaml := GetIngressGw(MyCluster + ".nextensio.net")
 	return yamlFile(file, yaml)
 }
 
@@ -310,7 +310,7 @@ func createTenants() {
 func generateNxtConnect(a ClusterUser) string {
 	file := "/tmp/nxtconnect-" + a.Uid + ".yaml"
 	podname := fmt.Sprintf("pod%d", a.Pod)
-	yaml := GetAgentVservice(a.Tenant.Hex(), "gateway"+MyCluster+".nextensio.net", podname, a.Connectid)
+	yaml := GetAgentVservice(a.Tenant.Hex(), MyCluster+".nextensio.net", podname, a.Connectid)
 	return yamlFile(file, yaml)
 }
 
@@ -338,7 +338,7 @@ func generateNxtFor(s ClusterService) string {
 	user := DBFindClusterUser(s.Tenant, s.Agents[0])
 	podname := fmt.Sprintf("pod%d", user.Pod)
 	tenant_svc := strings.Split(s.Sid, ":")
-	yaml := GetAppVservice(s.Tenant.Hex(), "gateway"+MyCluster+".nextensio.net", podname, tenant_svc[1])
+	yaml := GetAppVservice(s.Tenant.Hex(), MyCluster+".nextensio.net", podname, tenant_svc[1])
 	return yamlFile(file, yaml)
 }
 
@@ -413,7 +413,7 @@ func createGateways() {
 		}
 		gwVersion[gw.Name] = gw.Version
 
-		if strings.Contains(gw.Name, "gateway"+MyCluster+".nextensio.net") {
+		if strings.Contains(gw.Name, MyCluster+".nextensio.net") {
 			for {
 				if createIngressGw() == nil {
 					break
