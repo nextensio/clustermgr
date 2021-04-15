@@ -335,8 +335,7 @@ func generateNxtFor(s ClusterService) string {
 	//TODO: Today we handle only the case of one agent advertising a service, when we have multiple
 	// agents for the same service, we need to modify the yaml with some kind of loadbalancing across
 	// these agent pods etc..
-	user := DBFindClusterUser(s.Tenant, s.Agents[0])
-	podname := fmt.Sprintf("pod%d", user.Pod)
+	podname := fmt.Sprintf("pod%d", s.Pods[0])
 	tenant_svc := strings.Split(s.Sid, ":")
 	yaml := GetAppVservice(s.Tenant.Hex(), MyCluster+".nextensio.net", podname, tenant_svc[1])
 	return yamlFile(file, yaml)

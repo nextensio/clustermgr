@@ -144,6 +144,7 @@ type ClusterService struct {
 	Sid     string             `json:"sid" bson:"_id"`
 	Tenant  primitive.ObjectID `json:"tenant" bson:"tenant"`
 	Agents  []string           `json:"agents" bson:"agents"`
+	Pods    []int              `json:"pods" bson:"pods"`
 	Version int                `json:"version" bson:"version"`
 }
 
