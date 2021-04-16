@@ -5,7 +5,6 @@ import (
 
 	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -68,15 +67,15 @@ func DBFindAllGateways() []NxtGateway {
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type Namespace struct {
-	ID       primitive.ObjectID `json:"_id" bson:"_id"`
-	Name     string             `json:"name" bson:"name"`
-	Image    string             `json:"image" bson:"image"`
-	Database string             `json:"database" bson:"database"`
-	Pods     int                `json:"pods" bson:"pods"`
-	Version  int                `json:"version" bson:"version"`
+	ID       string `json:"_id" bson:"_id"`
+	Name     string `json:"name" bson:"name"`
+	Image    string `json:"image" bson:"image"`
+	Database string `json:"database" bson:"database"`
+	Pods     int    `json:"pods" bson:"pods"`
+	Version  int    `json:"version" bson:"version"`
 }
 
-func DBFindNamespace(id primitive.ObjectID) *Namespace {
+func DBFindNamespace(id string) *Namespace {
 	var namespace Namespace
 	err := namespaceCltn.FindOne(
 		context.TODO(),
@@ -104,16 +103,16 @@ func DBFindAllNamespaces() []Namespace {
 }
 
 type ClusterUser struct {
-	Uid       string             `json:"uid" bson:"_id"`
-	Tenant    primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Pod       int                `json:"pod" bson:"pod"`
-	Connectid string             `json:"connectid" bson:"connectid"`
-	Services  []string           `json:"services" bson:"services"`
-	Version   int                `json:"version" bson:"version"`
+	Uid       string   `json:"uid" bson:"_id"`
+	Tenant    string   `json:"tenant" bson:"tenant"`
+	Pod       int      `json:"pod" bson:"pod"`
+	Connectid string   `json:"connectid" bson:"connectid"`
+	Services  []string `json:"services" bson:"services"`
+	Version   int      `json:"version" bson:"version"`
 }
 
-func DBFindClusterUser(tenant primitive.ObjectID, userid string) *ClusterUser {
-	uid := tenant.Hex() + ":" + userid
+func DBFindClusterUser(tenant string, userid string) *ClusterUser {
+	uid := tenant + ":" + userid
 	var user ClusterUser
 	err := usersCltn.FindOne(
 		context.TODO(),
@@ -141,15 +140,15 @@ func DBFindAllClusterUsers() []ClusterUser {
 }
 
 type ClusterService struct {
-	Sid     string             `json:"sid" bson:"_id"`
-	Tenant  primitive.ObjectID `json:"tenant" bson:"tenant"`
-	Agents  []string           `json:"agents" bson:"agents"`
-	Pods    []int              `json:"pods" bson:"pods"`
-	Version int                `json:"version" bson:"version"`
+	Sid     string   `json:"sid" bson:"_id"`
+	Tenant  string   `json:"tenant" bson:"tenant"`
+	Agents  []string `json:"agents" bson:"agents"`
+	Pods    []int    `json:"pods" bson:"pods"`
+	Version int      `json:"version" bson:"version"`
 }
 
-func DBFindClusterSvc(tenant primitive.ObjectID, service string) *ClusterService {
-	sid := tenant.Hex() + ":" + service
+func DBFindClusterSvc(tenant string, service string) *ClusterService {
+	sid := tenant + ":" + service
 	var svc ClusterService
 	err := serviceCltn.FindOne(
 		context.TODO(),

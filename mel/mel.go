@@ -60,14 +60,14 @@ func yamlFile(file string, yaml string) string {
 }
 
 func generateDeploy(n Namespace, podname string) string {
-	file := "/tmp/deploy-" + n.ID.Hex() + "-" + podname + ".yaml"
-	yaml := GetDeploy(n.ID.Hex(), n.Image, MyMongo, podname, MyCluster, ConsulDNS)
+	file := "/tmp/deploy-" + n.ID + "-" + podname + ".yaml"
+	yaml := GetDeploy(n.ID, n.Image, MyMongo, podname, MyCluster, ConsulDNS)
 	return yamlFile(file, yaml)
 }
 
 func generateService(n Namespace, podname string) string {
-	file := "/tmp/service-" + n.ID.Hex() + "-" + podname + ".yaml"
-	yaml := GetService(n.ID.Hex(), podname)
+	file := "/tmp/service-" + n.ID + "-" + podname + ".yaml"
+	yaml := GetService(n.ID, podname)
 	return yamlFile(file, yaml)
 }
 
@@ -96,24 +96,24 @@ func createDeploy(n Namespace) error {
 }
 
 func createNamespace(n Namespace) error {
-	cmd := exec.Command("kubectl", "create", "namespace", n.ID.Hex())
+	cmd := exec.Command("kubectl", "create", "namespace", n.ID)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outs := string(out)
 		if !strings.Contains(outs, "AlreadyExists") {
-			glog.Error("Cannot create namespace ", n.ID.Hex(), ": ", outs)
+			glog.Error("Cannot create namespace ", n.ID, ": ", outs)
 			return err
 		}
 	}
-	cmd = exec.Command("kubectl", "label", "namespace", n.ID.Hex(), "istio-injection=enabled", "--overwrite")
+	cmd = exec.Command("kubectl", "label", "namespace", n.ID, "istio-injection=enabled", "--overwrite")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
-		glog.Error("Cannot enable istio injection for namespace ", n.ID.Hex(), ": ", string(out))
+		glog.Error("Cannot enable istio injection for namespace ", n.ID, ": ", string(out))
 		return err
 	}
 
 	// Copy the docker keys to the new namespace
-	file := "/tmp/" + n.ID.Hex() + "-regcred.yaml"
+	file := "/tmp/" + n.ID + "-regcred.yaml"
 	cmd = exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
@@ -122,7 +122,7 @@ func createNamespace(n Namespace) error {
 	}
 	regcred := string(out)
 	reNspc := regexp.MustCompile(`namespace: default`)
-	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+n.ID.Hex())
+	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+n.ID)
 
 	// Replace some junk lines to make it legit yaml
 	re := regexp.MustCompile("(?m)[[:space:]]+(creationTimestamp:).*$")
@@ -284,11 +284,11 @@ func createTenants() {
 	namespaces := DBFindAllNamespaces()
 
 	for _, n := range namespaces {
-		v, ok := nspscVersion[n.ID.Hex()]
+		v, ok := nspscVersion[n.ID]
 		if ok && v == n.Version {
 			continue
 		}
-		nspscVersion[n.ID.Hex()] = n.Version
+		nspscVersion[n.ID] = n.Version
 
 		for {
 			if createNamespace(n) == nil {
@@ -310,7 +310,7 @@ func createTenants() {
 func generateNxtConnect(a ClusterUser) string {
 	file := "/tmp/nxtconnect-" + a.Uid + ".yaml"
 	podname := fmt.Sprintf("pod%d", a.Pod)
-	yaml := GetAgentVservice(a.Tenant.Hex(), MyCluster+".nextensio.net", podname, a.Connectid)
+	yaml := GetAgentVservice(a.Tenant, MyCluster+".nextensio.net", podname, a.Connectid)
 	return yamlFile(file, yaml)
 }
 
@@ -337,7 +337,7 @@ func generateNxtFor(s ClusterService) string {
 	// these agent pods etc..
 	podname := fmt.Sprintf("pod%d", s.Pods[0])
 	tenant_svc := strings.Split(s.Sid, ":")
-	yaml := GetAppVservice(s.Tenant.Hex(), MyCluster+".nextensio.net", podname, tenant_svc[1])
+	yaml := GetAppVservice(s.Tenant, MyCluster+".nextensio.net", podname, tenant_svc[1])
 	return yamlFile(file, yaml)
 }
 
