@@ -11,11 +11,20 @@ import (
 )
 
 var dbClient *mongo.Client
-var clusterDB *mongo.Database
+
+// Collections for global operational info - clusters/gateways and tenants
+var globalclusterDB *mongo.Database
 var nxtGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
+
+// Collections specific to this cluster for tracking users and services
+var clusterDB *mongo.Database
 var usersCltn *mongo.Collection
 var serviceCltn *mongo.Collection
+
+func ClusterGetDBName(cl string) string {
+	return ("Nxt-" + cl + "-DB")
+}
 
 func DBConnect() bool {
 	var err error
@@ -32,12 +41,14 @@ func DBConnect() bool {
 	}
 	err = dbClient.Ping(context.TODO(), readpref.Primary())
 	if err != nil {
-		glog.Error("Database ping failed")
+		glog.Errorf("Database ping error - %s", err)
 		return false
 	}
-	clusterDB = dbClient.Database("ClusterDB")
-	nxtGwCltn = clusterDB.Collection("NxtGateways")
-	namespaceCltn = clusterDB.Collection("NxtNamespaces")
+	globalclusterDB = dbClient.Database("NxtClusterDB")
+	nxtGwCltn = globalclusterDB.Collection("NxtGateways")
+	namespaceCltn = globalclusterDB.Collection("NxtNamespaces")
+
+	clusterDB = dbClient.Database(ClusterGetDBName(MyCluster))
 	usersCltn = clusterDB.Collection("NxtUsers")
 	serviceCltn = clusterDB.Collection("NxtServices")
 
