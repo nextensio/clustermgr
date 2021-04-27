@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -21,8 +22,10 @@ var MyMongo string
 
 var gwVersion map[string]int
 var nspscVersion map[string]int
+var deployVersion map[string]int
 var agentVersion map[string]int
 var svcVersion map[string]int
+var clusterMesh map[string]int
 
 func GetEnv(key string, defaultValue string) string {
 	v := os.Getenv(key)
@@ -30,6 +33,10 @@ func GetEnv(key string, defaultValue string) string {
 		v = defaultValue
 	}
 	return v
+}
+
+func getGwName(cluster string) string {
+	return cluster + ".nextensio.net"
 }
 
 func kubectlApply(file string) error {
@@ -59,22 +66,24 @@ func yamlFile(file string, yaml string) string {
 	return file
 }
 
-func generateDeploy(n Namespace, podname string) string {
-	file := "/tmp/deploy-" + n.ID + "-" + podname + ".yaml"
-	yaml := GetDeploy(n.ID, n.Image, MyMongo, podname, MyCluster, ConsulDNS)
+//-------------------------------Pod Deployemt & Namespace-------------------------------
+
+func generateDeploy(ct *ClusterConfig, podname string) string {
+	file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
+	yaml := GetDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS)
 	return yamlFile(file, yaml)
 }
 
-func generateService(n Namespace, podname string) string {
-	file := "/tmp/service-" + n.ID + "-" + podname + ".yaml"
-	yaml := GetService(n.ID, podname)
+func generateService(tenant string, podname string) string {
+	file := "/tmp/service-" + tenant + "-" + podname + ".yaml"
+	yaml := GetService(tenant, podname)
 	return yamlFile(file, yaml)
 }
 
-func createDeploy(n Namespace) error {
-	for i := 1; i <= n.Pods; i++ {
+func createDeploy(ct *ClusterConfig) error {
+	for i := 1; i <= ct.Pods; i++ {
 		podname := fmt.Sprintf("pod%d", i)
-		file := generateDeploy(n, podname)
+		file := generateDeploy(ct, podname)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -82,7 +91,7 @@ func createDeploy(n Namespace) error {
 		if err != nil {
 			return err
 		}
-		file = generateService(n, podname)
+		file = generateService(ct.Tenant, podname)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -95,25 +104,25 @@ func createDeploy(n Namespace) error {
 	return nil
 }
 
-func createNamespace(n Namespace) error {
-	cmd := exec.Command("kubectl", "create", "namespace", n.ID)
+func createNamespace(ns string) error {
+	cmd := exec.Command("kubectl", "create", "namespace", ns)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outs := string(out)
 		if !strings.Contains(outs, "AlreadyExists") {
-			glog.Error("Cannot create namespace ", n.ID, ": ", outs)
+			glog.Error("Cannot create namespace ", ns, ": ", outs)
 			return err
 		}
 	}
-	cmd = exec.Command("kubectl", "label", "namespace", n.ID, "istio-injection=enabled", "--overwrite")
+	cmd = exec.Command("kubectl", "label", "namespace", ns, "istio-injection=enabled", "--overwrite")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
-		glog.Error("Cannot enable istio injection for namespace ", n.ID, ": ", string(out))
+		glog.Error("Cannot enable istio injection for namespace ", ns, ": ", string(out))
 		return err
 	}
 
 	// Copy the docker keys to the new namespace
-	file := "/tmp/" + n.ID + "-regcred.yaml"
+	file := "/tmp/" + ns + "-regcred.yaml"
 	cmd = exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
@@ -122,7 +131,7 @@ func createNamespace(n Namespace) error {
 	}
 	regcred := string(out)
 	reNspc := regexp.MustCompile(`namespace: default`)
-	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+n.ID)
+	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+ns)
 
 	// Replace some junk lines to make it legit yaml
 	re := regexp.MustCompile("(?m)[[:space:]]+(creationTimestamp:).*$")
@@ -144,6 +153,25 @@ func createNamespace(n Namespace) error {
 
 	return nil
 }
+
+func createTenants(clcfg *ClusterConfig) {
+
+	_, ok1 := nspscVersion[clcfg.Tenant]
+	if !ok1 {
+		// Unknown tenant, so create namespace
+		if createNamespace(clcfg.Tenant) == nil {
+			nspscVersion[clcfg.Tenant] = 1
+		}
+	}
+	v, ok2 := deployVersion[clcfg.Tenant]
+	if !ok2 || (v != clcfg.Version) {
+		if createDeploy(clcfg) == nil {
+			deployVersion[clcfg.Tenant] = clcfg.Version
+		}
+	}
+}
+
+//---------------------------------------Consul------------------------------------
 
 func getConsulDNS() string {
 	cmd := exec.Command("kubectl", "get", "svc", MyCluster+"-consul-dns", "-n", "consul-system", "-o", "jsonpath='{.spec.clusterIP}'")
@@ -186,6 +214,8 @@ func createConsul() error {
 	}
 	return nil
 }
+
+//-----------------------------------Gateways--------------------------------------
 
 func generateEgressGwDest(gateway string) string {
 	file := "/tmp/egwdst-" + gateway + ".yaml"
@@ -263,7 +293,7 @@ func createEgressGws(gw string) error {
 
 func generateIngressGw() string {
 	file := "/tmp/igw.yaml"
-	yaml := GetIngressGw(MyCluster + ".nextensio.net")
+	yaml := GetIngressGw(getGwName(MyCluster))
 	return yamlFile(file, yaml)
 }
 
@@ -280,37 +310,94 @@ func createIngressGw() error {
 	return nil
 }
 
-func createTenants() {
-	namespaces := DBFindAllNamespaces()
+// Find out all other clusters (gateways) this cluster needs to connect to.
+// First get all tenants in this cluster.
+// For each such tenant, get tenant's presence in all other clusters.
+// Get merged set of all those clusters and return a filtered set of
+// newly discovered clusters.
+func generateClusterMesh() map[string]int {
+	var clusterm = make(map[string]int)
+	var clusterdel = make(map[string]int)
 
-	for _, n := range namespaces {
-		v, ok := nspscVersion[n.ID]
-		if ok && v == n.Version {
-			continue
+	clTcfg := DBFindAllTenantsInCluster(MyCluster)
+	for _, clTdoc := range clTcfg {
+		// For every tenant in this cluster, get all other clusters
+		// where the tenant has presence so we can enable connectivity
+		// to those clusters.
+		clGcfg := DBFindAllClustersForTenant(clTdoc.Tenant)
+		for _, clGdoc := range clGcfg {
+			if clGdoc.Cluster == MyCluster {
+				continue
+			}
+			_, ok := clusterMesh[clGdoc.Cluster]
+			// Keep track of known and unknown/new clusters
+			if !ok {
+				clusterm[clGdoc.Cluster] = 1 // New
+			} else {
+				clusterm[clGdoc.Cluster] = 2 // Known
+			}
 		}
-		nspscVersion[n.ID] = n.Version
+	}
+	// Now figure out if any previously known clusters have gone away
+	// from our mesh so we can do any needed cleanup.
+	for cl, _ := range clusterMesh {
+		_, ok := clusterm[cl]
+		if !ok {
+			// cluster no longer used by any tenant in this cluster
+			clusterdel[cl] = 1
+		}
+	}
+	if len(clusterdel) > 0 {
+		// Clean up yamls and remove egress-gateway config for
+		// gateways this cluster does not need to connect to any more.
+		// TODO: figure out how to do this.
+		for cl, _ := range clusterdel {
+			delete(clusterMesh, cl)
+			delete(gwVersion, cl)
+		}
+	}
 
-		for {
-			if createNamespace(n) == nil {
-				break
-			}
-			// There is no difference between namespaces, if creating one fails, then the next
-			// will fail too, so we ensure this one succeeds before proceeding
-			time.Sleep(1 * time.Second)
+	// Add any newly discovered clusters to clusterMesh and leave just the
+	// new clusters in clusterm for further processing.
+	for cl, val := range clusterm {
+		if val == 1 { // New cluster
+			clusterMesh[cl] = 1 // value is immaterial
+		} else {
+			delete(clusterm, cl)
 		}
-		for {
-			if createDeploy(n) == nil {
-				break
+	}
+	return clusterm
+}
+
+// Enable connections to other clusters via egress-gateways, etc.
+func createEgressGateways() {
+	newclusters := generateClusterMesh()
+	for cl, _ := range newclusters {
+		_, ok := gwVersion[cl]
+		if !ok {
+			if createEgressGws(getGwName(cl)) == nil {
+				gwVersion[cl] = 1
 			}
-			time.Sleep(1 * time.Second)
 		}
 	}
 }
 
+// Create ingress-gateway for our own cluster
+func createIngressGateway() {
+	_, ok := gwVersion[MyCluster]
+	if !ok {
+		if createIngressGw() == nil {
+			gwVersion[MyCluster] = 1
+		}
+	}
+}
+
+//-----------------------------Agent connections into Nextensio------------------------
+
 func generateNxtConnect(a ClusterUser) string {
 	file := "/tmp/nxtconnect-" + a.Uid + ".yaml"
 	podname := fmt.Sprintf("pod%d", a.Pod)
-	yaml := GetAgentVservice(a.Tenant, MyCluster+".nextensio.net", podname, a.Connectid)
+	yaml := GetAgentVservice(a.Tenant, getGwName(MyCluster), podname, a.Connectid)
 	return yamlFile(file, yaml)
 }
 
@@ -327,6 +414,22 @@ func createNxtConnect(a ClusterUser) error {
 	return nil
 }
 
+func createAgents(tenant string) {
+	agents := DBFindAllClusterUsersForTenant(tenant)
+
+	for _, a := range agents {
+		v, ok := agentVersion[a.Uid]
+		if ok && v == a.Version {
+			continue
+		}
+		if createNxtConnect(a) == nil {
+			agentVersion[a.Uid] = a.Version
+		}
+	}
+}
+
+//------------------------------Inter-cluster connectivity--------------------------------
+
 func generateNxtFor(s ClusterService) string {
 	if len(s.Agents) == 0 {
 		return ""
@@ -337,7 +440,7 @@ func generateNxtFor(s ClusterService) string {
 	// these agent pods etc..
 	podname := fmt.Sprintf("pod%d", s.Pods[0])
 	tenant_svc := strings.Split(s.Sid, ":")
-	yaml := GetAppVservice(s.Tenant, MyCluster+".nextensio.net", podname, tenant_svc[1])
+	yaml := GetAppVservice(s.Tenant, getGwName(MyCluster), podname, tenant_svc[1])
 	return yamlFile(file, yaml)
 }
 
@@ -354,83 +457,24 @@ func createNxtFor(s ClusterService) error {
 	return nil
 }
 
-func createAgents() {
-	agents := DBFindAllClusterUsers()
-
-	for _, a := range agents {
-		v, ok := agentVersion[a.Uid]
-		if ok && v == a.Version {
-			continue
-		}
-		agentVersion[a.Uid] = a.Version
-
-		tenant := DBFindNamespace(a.Tenant)
-		if tenant == nil {
-			glog.Error("User ", a.Uid, a.Tenant, " without parent tenant")
-			continue
-		}
-		for {
-			if createNxtConnect(a) == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}
-}
-
-func createServices() {
-	svcs := DBFindAllClusterSvcs()
+func createServices(tenant string) {
+	svcs := DBFindAllClusterSvcsForTenant(tenant)
 
 	for _, s := range svcs {
 		v, ok := svcVersion[s.Sid]
 		if ok && v == s.Version {
 			continue
 		}
-		svcVersion[s.Sid] = s.Version
-
-		tenant := DBFindNamespace(s.Tenant)
-		if tenant == nil {
-			glog.Error("Service ", s.Sid, " without parent tenant")
-			continue
-		}
-
-		for {
-			if createNxtFor(s) == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
+		if createNxtFor(s) == nil {
+			svcVersion[s.Sid] = s.Version
 		}
 	}
 }
 
-func createGateways() {
-	gateways := DBFindAllGateways()
-	for _, gw := range gateways {
-		v, ok := gwVersion[gw.Name]
-		if ok && v == gw.Version {
-			continue
-		}
-		gwVersion[gw.Name] = gw.Version
-
-		if strings.Contains(gw.Name, MyCluster+".nextensio.net") {
-			for {
-				if createIngressGw() == nil {
-					break
-				}
-				time.Sleep(1 * time.Second)
-			}
-		} else {
-			for {
-				if createEgressGws(gw.Name) == nil {
-					break
-				}
-				time.Sleep(1 * time.Second)
-			}
-		}
-	}
-}
+//--------------------------------------Main---------------------------------------
 
 func main() {
+	flag.Parse()
 	// We were executed as command line yaml generator, nothing more to do after that
 	if Cmdline() == true {
 		return
@@ -457,8 +501,10 @@ func main() {
 	//mongo and apply only the changed ones
 	gwVersion = make(map[string]int)
 	nspscVersion = make(map[string]int)
+	deployVersion = make(map[string]int)
 	agentVersion = make(map[string]int)
 	svcVersion = make(map[string]int)
+	clusterMesh = make(map[string]int)
 
 	// Create consul
 	for {
@@ -486,10 +532,15 @@ func main() {
 
 	//TODO: This for loop will go away once we register with mongo for change notifications
 	for {
-		createGateways()
-		createTenants()
-		createAgents()
-		createServices()
-		time.Sleep(5 * time.Second)
+		createIngressGateway()
+		createEgressGateways()
+
+		clTcfg := DBFindAllTenantsInCluster(MyCluster)
+		for _, Tcfg := range clTcfg {
+			createTenants(&Tcfg)
+			createAgents(Tcfg.Tenant)
+			createServices(Tcfg.Tenant)
+		}
+		time.Sleep(1 * time.Second)
 	}
 }

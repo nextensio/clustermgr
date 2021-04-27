@@ -16,6 +16,7 @@ var dbClient *mongo.Client
 var globalclusterDB *mongo.Database
 var nxtGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
+var clusterCfgCltn *mongo.Collection
 
 // Collections specific to this cluster for tracking users and services
 var clusterDB *mongo.Database
@@ -47,6 +48,7 @@ func DBConnect() bool {
 	globalclusterDB = dbClient.Database("NxtClusterDB")
 	nxtGwCltn = globalclusterDB.Collection("NxtGateways")
 	namespaceCltn = globalclusterDB.Collection("NxtNamespaces")
+	clusterCfgCltn = globalclusterDB.Collection("NxtClusters")
 
 	clusterDB = dbClient.Database(ClusterGetDBName(MyCluster))
 	usersCltn = clusterDB.Collection("NxtUsers")
@@ -58,6 +60,7 @@ func DBConnect() bool {
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
 type NxtGateway struct {
 	Name    string `json:"name" bson:"name"`
+	Cluster string `json:"cluster" bson:"cluster"`
 	Version int    `json:"version" bson:"version"`
 }
 
@@ -82,7 +85,6 @@ type Namespace struct {
 	Name     string `json:"name" bson:"name"`
 	Image    string `json:"image" bson:"image"`
 	Database string `json:"database" bson:"database"`
-	Pods     int    `json:"pods" bson:"pods"`
 	Version  int    `json:"version" bson:"version"`
 }
 
@@ -113,6 +115,50 @@ func DBFindAllNamespaces() []Namespace {
 	return namespaces
 }
 
+type ClusterConfig struct {
+	Id      string `json:"id" bson:"_id"` // ClusterID:TenantID
+	Cluster string `json:"cluster" bson:"cluster"`
+	Tenant  string `json:"tenant" bson:"tenant"`
+	Image   string `json:"image" bson:"image"`
+	Pods    int    `json:"pods" bson:"pods"`
+	NextPod int    `json:"nextpod" bson:"nextpod"`
+	Version int    `json:"version" bson:"version"`
+}
+
+// Find all tenants present in a cluster
+func DBFindAllTenantsInCluster(clid string) []ClusterConfig {
+	var clcfg []ClusterConfig
+	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"cluster": clid})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &clcfg)
+	if err != nil {
+		return nil
+	}
+	if len(clcfg) > 0 {
+		return clcfg
+	}
+	return nil
+}
+
+// Find all clusters for specified tenant
+func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
+	var clcfg []ClusterConfig
+	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	if err != nil {
+		return nil
+	}
+	err = cursor.All(context.TODO(), &clcfg)
+	if err != nil {
+		return nil
+	}
+	if len(clcfg) > 0 {
+		return clcfg
+	}
+	return nil
+}
+
 type ClusterUser struct {
 	Uid       string   `json:"uid" bson:"_id"`
 	Tenant    string   `json:"tenant" bson:"tenant"`
@@ -135,10 +181,10 @@ func DBFindClusterUser(tenant string, userid string) *ClusterUser {
 	return &user
 }
 
-func DBFindAllClusterUsers() []ClusterUser {
+func DBFindAllClusterUsersForTenant(tenant string) []ClusterUser {
 	var users []ClusterUser
 
-	cursor, err := usersCltn.Find(context.TODO(), bson.M{})
+	cursor, err := usersCltn.Find(context.TODO(), bson.M{"tenant": tenant})
 	if err != nil {
 		return nil
 	}
@@ -171,10 +217,10 @@ func DBFindClusterSvc(tenant string, service string) *ClusterService {
 	return &svc
 }
 
-func DBFindAllClusterSvcs() []ClusterService {
+func DBFindAllClusterSvcsForTenant(tenant string) []ClusterService {
 	var svcs []ClusterService
 
-	cursor, err := serviceCltn.Find(context.TODO(), bson.M{})
+	cursor, err := serviceCltn.Find(context.TODO(), bson.M{"tenant": tenant})
 	if err != nil {
 		return nil
 	}
