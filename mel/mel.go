@@ -23,8 +23,10 @@ var MyMongo string
 var gwVersion map[string]int
 var nspscVersion map[string]int
 var deployVersion map[string]int
-var agentVersion map[string]int
-var svcVersion map[string]int
+var userVersion map[string]int
+var bundleVersion map[string]int
+var usvcVersion map[string]int
+var bsvcVersion map[string]int
 var clusterMesh map[string]int
 
 func GetEnv(key string, defaultValue string) string {
@@ -33,6 +35,14 @@ func GetEnv(key string, defaultValue string) string {
 		v = defaultValue
 	}
 	return v
+}
+
+func getPodName(pod int, podtype string) string {
+	prefix := "apod"
+	if podtype != "A" {
+		prefix = "cpod"
+	}
+	return prefix + fmt.Sprintf("%d", pod)
 }
 
 func getGwName(cluster string) string {
@@ -81,8 +91,27 @@ func generateService(tenant string, podname string) string {
 }
 
 func createDeploy(ct *ClusterConfig) error {
-	for i := 1; i <= ct.Pods; i++ {
-		podname := fmt.Sprintf("pod%d", i)
+	for i := 1; i <= ct.Apods; i++ {
+		podname := getPodName(i, "A")
+		file := generateDeploy(ct, podname)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
+		err := kubectlApply(file)
+		if err != nil {
+			return err
+		}
+		file = generateService(ct.Tenant, podname)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
+		err = kubectlApply(file)
+		if err != nil {
+			return err
+		}
+	}
+	for i := 1; i <= ct.Cpods; i++ {
+		podname := getPodName(i, "C")
 		file := generateDeploy(ct, podname)
 		if file == "" {
 			return errors.New("yaml fail")
@@ -394,15 +423,15 @@ func createIngressGateway() {
 
 //-----------------------------Agent connections into Nextensio------------------------
 
-func generateNxtConnect(a ClusterUser) string {
+func generateNxtConnect(a ClusterUser, utype string) string {
 	file := "/tmp/nxtconnect-" + a.Uid + ".yaml"
-	podname := fmt.Sprintf("pod%d", a.Pod)
+	podname := getPodName(a.Pod, utype)
 	yaml := GetAgentVservice(a.Tenant, getGwName(MyCluster), podname, a.Connectid)
 	return yamlFile(file, yaml)
 }
 
-func createNxtConnect(a ClusterUser) error {
-	file := generateNxtConnect(a)
+func createNxtConnect(a ClusterUser, utype string) error {
+	file := generateNxtConnect(a, utype)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -415,37 +444,48 @@ func createNxtConnect(a ClusterUser) error {
 }
 
 func createAgents(tenant string) {
-	agents := DBFindAllClusterUsersForTenant(tenant)
-
+	agents := DBFindAllClusterBundlesForTenant(tenant)
 	for _, a := range agents {
-		v, ok := agentVersion[a.Uid]
+		v, ok := bundleVersion[a.Uid]
 		if ok && v == a.Version {
 			continue
 		}
-		if createNxtConnect(a) == nil {
-			agentVersion[a.Uid] = a.Version
+		if createNxtConnect(a, "C") == nil {
+			bundleVersion[a.Uid] = a.Version
+		}
+	}
+
+	agents = DBFindAllClusterUsersForTenant(tenant)
+	for _, a := range agents {
+		v, ok := userVersion[a.Uid]
+		if ok && v == a.Version {
+			continue
+		}
+		if createNxtConnect(a, "A") == nil {
+			userVersion[a.Uid] = a.Version
 		}
 	}
 }
 
 //------------------------------Inter-cluster connectivity--------------------------------
 
-func generateNxtFor(s ClusterService) string {
+func generateNxtFor(s ClusterService, utype string) string {
 	if len(s.Agents) == 0 {
 		return ""
 	}
 	file := "/tmp/nxtfor-" + s.Sid + ".yaml"
-	//TODO: Today we handle only the case of one agent advertising a service, when we have multiple
-	// agents for the same service, we need to modify the yaml with some kind of loadbalancing across
-	// these agent pods etc..
-	podname := fmt.Sprintf("pod%d", s.Pods[0])
+	//TODO: Today we handle only the case of one agent advertising a service,
+	// when we have multiple agents for the same service, we need to modify the
+	// yaml with some kind of loadbalancing across these agent pods etc..
+	// For now, pick the first pod.
+	podname := getPodName(s.Pods[0], utype)
 	tenant_svc := strings.Split(s.Sid, ":")
 	yaml := GetAppVservice(s.Tenant, getGwName(MyCluster), podname, tenant_svc[1])
 	return yamlFile(file, yaml)
 }
 
-func createNxtFor(s ClusterService) error {
-	file := generateNxtFor(s)
+func createNxtFor(s ClusterService, utype string) error {
+	file := generateNxtFor(s, utype)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -458,15 +498,25 @@ func createNxtFor(s ClusterService) error {
 }
 
 func createServices(tenant string) {
-	svcs := DBFindAllClusterSvcsForTenant(tenant)
-
+	svcs := DBFindAllBundleClusterSvcsForTenant(tenant)
 	for _, s := range svcs {
-		v, ok := svcVersion[s.Sid]
+		v, ok := bsvcVersion[s.Sid]
 		if ok && v == s.Version {
 			continue
 		}
-		if createNxtFor(s) == nil {
-			svcVersion[s.Sid] = s.Version
+		if createNxtFor(s, "C") == nil {
+			bsvcVersion[s.Sid] = s.Version
+		}
+	}
+
+	svcs = DBFindAllUserClusterSvcsForTenant(tenant)
+	for _, s := range svcs {
+		v, ok := usvcVersion[s.Sid]
+		if ok && v == s.Version {
+			continue
+		}
+		if createNxtFor(s, "A") == nil {
+			usvcVersion[s.Sid] = s.Version
 		}
 	}
 }
@@ -502,8 +552,10 @@ func main() {
 	gwVersion = make(map[string]int)
 	nspscVersion = make(map[string]int)
 	deployVersion = make(map[string]int)
-	agentVersion = make(map[string]int)
-	svcVersion = make(map[string]int)
+	userVersion = make(map[string]int)
+	bundleVersion = make(map[string]int)
+	usvcVersion = make(map[string]int)
+	bsvcVersion = make(map[string]int)
 	clusterMesh = make(map[string]int)
 
 	// Create consul
