@@ -48,7 +48,7 @@ func Cmdline() bool {
 	} else if *replAgtVsvc == true {
 		fmt.Println(GetAgentVservice(*namespace, *gw, *pod, *agent))
 	} else if *replAppVsvc == true {
-		fmt.Println(GetAppVservice(*namespace, *gw, *pod, *agent))
+		fmt.Println(GetAppVservice(*namespace, *gw, *pod, *agent, "C"))
 	} else if *replSvc == true {
 		fmt.Println(GetService(*namespace, *pod))
 	}

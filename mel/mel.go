@@ -78,6 +78,12 @@ func yamlFile(file string, yaml string) string {
 
 //-------------------------------Pod Deployemt & Namespace-------------------------------
 
+func generateNxtForPod(t string, podname string) string {
+	file := "/tmp/nxtfor-" + t + "-" + podname + ".yaml"
+	yaml := GetAppVservice(t, getGwName(MyCluster), podname, "", "A")
+	return yamlFile(file, yaml)
+}
+
 func generateDeploy(ct *ClusterConfig, podname string) string {
 	file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
 	yaml := GetDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS)
@@ -102,6 +108,14 @@ func createDeploy(ct *ClusterConfig) error {
 			return err
 		}
 		file = generateService(ct.Tenant, podname)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
+		err = kubectlApply(file)
+		if err != nil {
+			return err
+		}
+		file = generateNxtForPod(ct.Tenant, podname)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -469,7 +483,7 @@ func createAgents(tenant string) {
 
 //------------------------------Inter-cluster connectivity--------------------------------
 
-func generateNxtFor(s ClusterService, utype string) string {
+func generateNxtFor(s ClusterService) string {
 	if len(s.Agents) == 0 {
 		return ""
 	}
@@ -478,14 +492,14 @@ func generateNxtFor(s ClusterService, utype string) string {
 	// when we have multiple agents for the same service, we need to modify the
 	// yaml with some kind of loadbalancing across these agent pods etc..
 	// For now, pick the first pod.
-	podname := getPodName(s.Pods[0], utype)
+	podname := getPodName(s.Pods[0], "C")
 	tenant_svc := strings.Split(s.Sid, ":")
-	yaml := GetAppVservice(s.Tenant, getGwName(MyCluster), podname, tenant_svc[1])
+	yaml := GetAppVservice(s.Tenant, getGwName(MyCluster), podname, tenant_svc[1], "C")
 	return yamlFile(file, yaml)
 }
 
-func createNxtFor(s ClusterService, utype string) error {
-	file := generateNxtFor(s, utype)
+func createNxtFor(s ClusterService) error {
+	file := generateNxtFor(s)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -504,19 +518,8 @@ func createServices(tenant string) {
 		if ok && v == s.Version {
 			continue
 		}
-		if createNxtFor(s, "C") == nil {
+		if createNxtFor(s) == nil {
 			bsvcVersion[s.Sid] = s.Version
-		}
-	}
-
-	svcs = DBFindAllUserClusterSvcsForTenant(tenant)
-	for _, s := range svcs {
-		v, ok := usvcVersion[s.Sid]
-		if ok && v == s.Version {
-			continue
-		}
-		if createNxtFor(s, "A") == nil {
-			usvcVersion[s.Sid] = s.Version
 		}
 	}
 }

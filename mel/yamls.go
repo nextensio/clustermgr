@@ -25,8 +25,14 @@ func GetAgentVservice(namespace string, gateway string, podname string, agent st
 	return gwRepl
 }
 
-func GetAppVservice(namespace string, gateway string, podname string, app string) string {
-	content, err := ioutil.ReadFile(MyYaml + "/nextensio_for.yaml")
+func GetAppVservice(namespace string, gateway string, podname string, app string, utype string) string {
+	var yamltemplate string
+	if utype == "A" {
+		yamltemplate = "/nextensio_for_user.yaml"
+	} else {
+		yamltemplate = "/nextensio_for.yaml"
+	}
+	content, err := ioutil.ReadFile(MyYaml + yamltemplate)
 	if err != nil {
 		log.Fatal(err)
 	}
