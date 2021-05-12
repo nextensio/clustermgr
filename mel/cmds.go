@@ -46,7 +46,7 @@ func Cmdline() bool {
 	} else if *replDeploy == true {
 		fmt.Println(GetDeploy(*namespace, *image, *mongo, *pod, *cluster, *dns))
 	} else if *replAgtVsvc == true {
-		fmt.Println(GetAgentVservice(*namespace, *gw, *pod, *agent))
+		fmt.Println(GetAgentVservice(*namespace, *gw, *pod, *agent, "C"))
 	} else if *replAppVsvc == true {
 		fmt.Println(GetAppVservice(*namespace, *gw, *pod, *agent, "C"))
 	} else if *replSvc == true {

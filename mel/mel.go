@@ -78,9 +78,15 @@ func yamlFile(file string, yaml string) string {
 
 //-------------------------------Pod Deployemt & Namespace-------------------------------
 
-func generateNxtForPod(t string, podname string) string {
+func generateUserNxtFor(t string, podname string) string {
 	file := "/tmp/nxtfor-" + t + "-" + podname + ".yaml"
 	yaml := GetAppVservice(t, getGwName(MyCluster), podname, "", "A")
+	return yamlFile(file, yaml)
+}
+
+func generateUserNxtConnect(t string, podname string) string {
+	file := "/tmp/nxtconnect-" + t + "-" + podname + ".yaml"
+	yaml := GetAgentVservice(t, getGwName(MyCluster), podname, "", "A")
 	return yamlFile(file, yaml)
 }
 
@@ -96,6 +102,29 @@ func generateService(tenant string, podname string) string {
 	return yamlFile(file, yaml)
 }
 
+func createUserConnects(ct *ClusterConfig) error {
+	for i := 1; i <= ct.Apods; i++ {
+		podname := getPodName(i, "A")
+		file := generateUserNxtFor(ct.Tenant, podname)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
+		err := kubectlApply(file)
+		if err != nil {
+			return err
+		}
+		file = generateUserNxtConnect(ct.Tenant, podname)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
+		err = kubectlApply(file)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func createDeploy(ct *ClusterConfig) error {
 	for i := 1; i <= ct.Apods; i++ {
 		podname := getPodName(i, "A")
@@ -108,14 +137,6 @@ func createDeploy(ct *ClusterConfig) error {
 			return err
 		}
 		file = generateService(ct.Tenant, podname)
-		if file == "" {
-			return errors.New("yaml fail")
-		}
-		err = kubectlApply(file)
-		if err != nil {
-			return err
-		}
-		file = generateNxtForPod(ct.Tenant, podname)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -210,6 +231,12 @@ func createTenants(clcfg *ClusterConfig) {
 	if !ok2 || (v != clcfg.Version) {
 		if createDeploy(clcfg) == nil {
 			deployVersion[clcfg.Tenant] = clcfg.Version
+		}
+	}
+	v, ok2 = userVersion[clcfg.Tenant]
+	if !ok2 || (v != clcfg.Version) {
+		if createUserConnects(clcfg) == nil {
+			userVersion[clcfg.Tenant] = clcfg.Version
 		}
 	}
 }
@@ -437,15 +464,15 @@ func createIngressGateway() {
 
 //-----------------------------Agent connections into Nextensio------------------------
 
-func generateNxtConnect(a ClusterUser, utype string) string {
+func generateNxtConnect(a ClusterUser) string {
 	file := "/tmp/nxtconnect-" + a.Uid + ".yaml"
-	podname := getPodName(a.Pod, utype)
-	yaml := GetAgentVservice(a.Tenant, getGwName(MyCluster), podname, a.Connectid)
+	podname := getPodName(a.Pod, "C")
+	yaml := GetAgentVservice(a.Tenant, getGwName(MyCluster), podname, a.Connectid, "C")
 	return yamlFile(file, yaml)
 }
 
-func createNxtConnect(a ClusterUser, utype string) error {
-	file := generateNxtConnect(a, utype)
+func createNxtConnect(a ClusterUser) error {
+	file := generateNxtConnect(a)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -464,19 +491,8 @@ func createAgents(tenant string) {
 		if ok && v == a.Version {
 			continue
 		}
-		if createNxtConnect(a, "C") == nil {
+		if createNxtConnect(a) == nil {
 			bundleVersion[a.Uid] = a.Version
-		}
-	}
-
-	agents = DBFindAllClusterUsersForTenant(tenant)
-	for _, a := range agents {
-		v, ok := userVersion[a.Uid]
-		if ok && v == a.Version {
-			continue
-		}
-		if createNxtConnect(a, "A") == nil {
-			userVersion[a.Uid] = a.Version
 		}
 	}
 }

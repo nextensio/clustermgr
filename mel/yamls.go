@@ -7,8 +7,14 @@ import (
 	"strings"
 )
 
-func GetAgentVservice(namespace string, gateway string, podname string, agent string) string {
-	content, err := ioutil.ReadFile(MyYaml + "/nextensio_connect.yaml")
+func GetAgentVservice(namespace string, gateway string, podname string, agent string, utype string) string {
+	var yamltemplate string
+	if utype == "A" {
+		yamltemplate = "/nextensio_connect_user.yaml"
+	} else {
+		yamltemplate = "/nextensio_connect.yaml"
+	}
+	content, err := ioutil.ReadFile(MyYaml + yamltemplate)
 	if err != nil {
 		log.Fatal(err)
 	}
