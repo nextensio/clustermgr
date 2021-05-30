@@ -122,8 +122,14 @@ func GetExtSvc(gateway string) string {
 	return svcRepl
 }
 
-func GetDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string) string {
-	content, err := ioutil.ReadFile(MyYaml + "/deploy.yaml")
+func GetDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string, podtype string) string {
+	var yamltemplate string
+	if podtype == "C" {
+		yamltemplate = "/deploy_cpod.yaml"
+	} else {
+		yamltemplate = "/deploy_apod.yaml"
+	}
+	content, err := ioutil.ReadFile(MyYaml + yamltemplate)
 	if err != nil {
 		log.Fatal(err)
 	}

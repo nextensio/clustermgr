@@ -90,9 +90,9 @@ func generateUserNxtConnect(t string, podname string) string {
 	return yamlFile(file, yaml)
 }
 
-func generateDeploy(ct *ClusterConfig, podname string) string {
+func generateDeploy(ct *ClusterConfig, podname string, podtype string) string {
 	file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
-	yaml := GetDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS)
+	yaml := GetDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS, podtype)
 	return yamlFile(file, yaml)
 }
 
@@ -128,7 +128,7 @@ func createUserConnects(ct *ClusterConfig) error {
 func createDeploy(ct *ClusterConfig) error {
 	for i := 1; i <= ct.Apods; i++ {
 		podname := getPodName(i, "A")
-		file := generateDeploy(ct, podname)
+		file := generateDeploy(ct, podname, "A")
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -147,7 +147,7 @@ func createDeploy(ct *ClusterConfig) error {
 	}
 	for i := 1; i <= ct.Cpods; i++ {
 		podname := getPodName(i, "C")
-		file := generateDeploy(ct, podname)
+		file := generateDeploy(ct, podname, "C")
 		if file == "" {
 			return errors.New("yaml fail")
 		}
