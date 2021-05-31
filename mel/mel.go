@@ -76,48 +76,73 @@ func yamlFile(file string, yaml string) string {
 	return file
 }
 
-//-------------------------------Pod Deployemt & Namespace-------------------------------
+// This is how the yamls are connected together:
+// User agent sets apodname in x-nextensio-connect header -> matched by
+// nxtconnect-<apodname> -> service-outside-<apodname> -> deploy-<apodname>
+// Cpod sets target apodname in x-nextensio-for header -> matcheed by
+// nxtfor-<apodname> -> service-inside-<apodname> -> deploy-<apodname>
+//
+// Connector agent sets connector name in x-nextensio-connect header -> matched by
+// nxtconnect-<connectorname> -> service-outside-<cpodname> -> deploy-<cpodname>
+// Apod sets target service name in x-nextensio-for header -> matched by
+// nxtfor-<servicename> -> service-inside-<cpodname> -> deploy-<cpodname>
+//
+//-------------------------------Pod Deployment & Namespace-------------------------------
 
-func generateUserNxtFor(t string, podname string) string {
+const apodReplicas = 1
+const cpodReplicas = 1
+
+// Generate virtual service to handle Cpod to Apod traffic based on x-nextensio-for
+// header whose value is a pod name
+func generateNxtForApod(t string, podname string, idx int) string {
+	hostname := podname + fmt.Sprintf("-%d", idx)
 	file := "/tmp/nxtfor-" + t + "-" + podname + ".yaml"
-	yaml := GetAppVservice(t, getGwName(MyCluster), podname, "", "A")
+	yaml := GetNxtForApodService(t, getGwName(MyCluster), podname, hostname)
 	return yamlFile(file, yaml)
 }
 
-func generateUserNxtConnect(t string, podname string) string {
+func createNxtForApod(t string, podname string) error {
+	var err error
+	var file string
+	for i := 0; i < apodReplicas; i++ {
+		// Repeat for each replica
+		file = generateNxtForApod(t, podname, i)
+		if file == "" {
+			err = errors.New("yaml fail")
+		} else {
+			err1 := kubectlApply(file)
+			if err1 != nil {
+				err = err1
+			}
+		}
+	}
+	return err
+}
+
+// Generate virtual service to handle user connections into an Apod based
+// on x-nextensio-connect header whose value is a pod name
+func generateApodNxtConnect(t string, podname string) string {
 	file := "/tmp/nxtconnect-" + t + "-" + podname + ".yaml"
-	yaml := GetAgentVservice(t, getGwName(MyCluster), podname, "", "A")
+	yaml := GetApodConnectService(t, getGwName(MyCluster), podname)
 	return yamlFile(file, yaml)
 }
 
-func generateDeploy(ct *ClusterConfig, podname string, podtype string) string {
-	file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
-	yaml := GetDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS, podtype)
-	return yamlFile(file, yaml)
-}
-
-func generateService(tenant string, podname string) string {
-	file := "/tmp/service-" + tenant + "-" + podname + ".yaml"
-	yaml := GetService(tenant, podname)
-	return yamlFile(file, yaml)
+func createApodNxtConnect(tenant string, podname string) error {
+	file := generateApodNxtConnect(tenant, podname)
+	if file == "" {
+		return errors.New("yaml fail")
+	}
+	return kubectlApply(file)
 }
 
 func createUserConnects(ct *ClusterConfig) error {
 	for i := 1; i <= ct.Apods; i++ {
 		podname := getPodName(i, "A")
-		file := generateUserNxtFor(ct.Tenant, podname)
-		if file == "" {
-			return errors.New("yaml fail")
-		}
-		err := kubectlApply(file)
+		err := createNxtForApod(ct.Tenant, podname)
 		if err != nil {
 			return err
 		}
-		file = generateUserNxtConnect(ct.Tenant, podname)
-		if file == "" {
-			return errors.New("yaml fail")
-		}
-		err = kubectlApply(file)
+		err = createApodNxtConnect(ct.Tenant, podname)
 		if err != nil {
 			return err
 		}
@@ -125,10 +150,92 @@ func createUserConnects(ct *ClusterConfig) error {
 	return nil
 }
 
+// Generate StatefulSet deployment for Apod
+func generateApodDeploy(ct *ClusterConfig, podname string) string {
+	file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
+	yaml := GetApodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS)
+	return yamlFile(file, yaml)
+}
+
+// Generate StatefulSet deployment for Cpod
+func generateCpodDeploy(ct *ClusterConfig, podname string) string {
+	file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
+	yaml := GetCpodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS)
+	return yamlFile(file, yaml)
+}
+
+// Generate service for handling outside connections into either an Apod
+// or Cpod.
+func generateOutsideService(tenant string, podname string) string {
+	file := "/tmp/service-outside-" + tenant + "-" + podname + ".yaml"
+	yaml := GetOutsideService(tenant, podname)
+	return yamlFile(file, yaml)
+}
+
+// Generate service for inter-cluster traffic coming into an Apod
+func generateApodInService(tenant string, podname string, idx int) string {
+	hostname := podname + fmt.Sprintf("-%d", idx)
+	file := "/tmp/service-inside-" + tenant + "-" + podname + ".yaml"
+	yaml := GetApodInService(tenant, podname, hostname)
+	return yamlFile(file, yaml)
+}
+
+// Generate service for inter-cluster traffic coming into a Cpod
+func generateCpodInService(tenant string, podname string) string {
+	file := "/tmp/service-inside-" + tenant + "-" + podname + ".yaml"
+	yaml := GetCpodInService(tenant, podname)
+	return yamlFile(file, yaml)
+}
+
+func createApodService(tenant string, podname string) error {
+	var err error
+	var file string
+	file = generateOutsideService(tenant, podname)
+	if file == "" {
+		return errors.New("yaml fail")
+	}
+	err = kubectlApply(file)
+
+	for i := 0; i < apodReplicas; i++ {
+		// Repeat for each replica
+		file = generateApodInService(tenant, podname, i)
+		if file == "" {
+			err = errors.New("yaml fail")
+		} else {
+			err1 := kubectlApply(file)
+			if err1 != nil {
+				err = err1
+			}
+		}
+	}
+	return err
+}
+
+func createCpodService(tenant string, podname string) error {
+	var err error
+	var file string
+	file = generateOutsideService(tenant, podname)
+	if file == "" {
+		return errors.New("yaml fail")
+	}
+	err = kubectlApply(file)
+
+	file = generateCpodInService(tenant, podname)
+	if file == "" {
+		err = errors.New("yaml fail")
+	} else {
+		err1 := kubectlApply(file)
+		if err1 != nil {
+			err = err1
+		}
+	}
+	return err
+}
+
 func createDeploy(ct *ClusterConfig) error {
 	for i := 1; i <= ct.Apods; i++ {
 		podname := getPodName(i, "A")
-		file := generateDeploy(ct, podname, "A")
+		file := generateApodDeploy(ct, podname)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -136,18 +243,14 @@ func createDeploy(ct *ClusterConfig) error {
 		if err != nil {
 			return err
 		}
-		file = generateService(ct.Tenant, podname)
-		if file == "" {
-			return errors.New("yaml fail")
-		}
-		err = kubectlApply(file)
+		err = createApodService(ct.Tenant, podname)
 		if err != nil {
 			return err
 		}
 	}
 	for i := 1; i <= ct.Cpods; i++ {
 		podname := getPodName(i, "C")
-		file := generateDeploy(ct, podname, "C")
+		file := generateCpodDeploy(ct, podname)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -155,11 +258,7 @@ func createDeploy(ct *ClusterConfig) error {
 		if err != nil {
 			return err
 		}
-		file = generateService(ct.Tenant, podname)
-		if file == "" {
-			return errors.New("yaml fail")
-		}
-		err = kubectlApply(file)
+		err = createCpodService(ct.Tenant, podname)
 		if err != nil {
 			return err
 		}
@@ -462,17 +561,19 @@ func createIngressGateway() {
 	}
 }
 
-//-----------------------------Agent connections into Nextensio------------------------
+//-----------------------------Connector connections into Nextensio------------------------
 
-func generateNxtConnect(a ClusterUser) string {
+// Generate virtual service to handle user connections into a Cpod based
+// on x-nextensio-connect header whose value is currently the connector name
+func generateCpodNxtConnect(a ClusterUser) string {
 	file := "/tmp/nxtconnect-" + a.Uid + ".yaml"
 	podname := getPodName(a.Pod, "C")
-	yaml := GetAgentVservice(a.Tenant, getGwName(MyCluster), podname, a.Connectid, "C")
+	yaml := GetCpodConnectService(a.Tenant, getGwName(MyCluster), podname, a.Connectid)
 	return yamlFile(file, yaml)
 }
 
-func createNxtConnect(a ClusterUser) error {
-	file := generateNxtConnect(a)
+func createCpodNxtConnect(a ClusterUser) error {
+	file := generateCpodNxtConnect(a)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -491,31 +592,35 @@ func createAgents(tenant string) {
 		if ok && v == a.Version {
 			continue
 		}
-		if createNxtConnect(a) == nil {
+		if createCpodNxtConnect(a) == nil {
 			bundleVersion[a.Uid] = a.Version
 		}
 	}
 }
 
-//------------------------------Inter-cluster connectivity--------------------------------
+//-----------------------Apod to Cpod Inter-cluster connectivity-------------------------
 
-func generateNxtFor(s ClusterService) string {
+// Generate virtual service to handle Apod to Cpod traffic based on the
+// x-nextensio-for header whose value is a service name
+func generateNxtForCpod(s ClusterService) string {
 	if len(s.Agents) == 0 {
 		return ""
 	}
-	file := "/tmp/nxtfor-" + s.Sid + ".yaml"
+	tenant_svc := strings.Split(s.Sid, ":")
+	svc := strings.ReplaceAll(s.Sid, "@", "-")
+	svc = strings.ReplaceAll(svc, ".", "-")
+	file := "/tmp/nxtfor-" + svc + ".yaml"
 	//TODO: Today we handle only the case of one agent advertising a service,
 	// when we have multiple agents for the same service, we need to modify the
 	// yaml with some kind of loadbalancing across these agent pods etc..
 	// For now, pick the first pod.
 	podname := getPodName(s.Pods[0], "C")
-	tenant_svc := strings.Split(s.Sid, ":")
-	yaml := GetAppVservice(s.Tenant, getGwName(MyCluster), podname, tenant_svc[1], "C")
+	yaml := GetNxtForCpodService(s.Tenant, getGwName(MyCluster), podname, tenant_svc[1])
 	return yamlFile(file, yaml)
 }
 
-func createNxtFor(s ClusterService) error {
-	file := generateNxtFor(s)
+func createNxtForCpod(s ClusterService) error {
+	file := generateNxtForCpod(s)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
@@ -534,7 +639,7 @@ func createServices(tenant string) {
 		if ok && v == s.Version {
 			continue
 		}
-		if createNxtFor(s) == nil {
+		if createNxtForCpod(s) == nil {
 			bsvcVersion[s.Sid] = s.Version
 		}
 	}

@@ -7,14 +7,24 @@ import (
 	"strings"
 )
 
-func GetAgentVservice(namespace string, gateway string, podname string, agent string, utype string) string {
-	var yamltemplate string
-	if utype == "A" {
-		yamltemplate = "/nextensio_connect_user.yaml"
-	} else {
-		yamltemplate = "/nextensio_connect.yaml"
+func GetApodConnectService(namespace string, gateway string, podname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/nextensio_connect_apod.yaml")
+	if err != nil {
+		log.Fatal(err)
 	}
-	content, err := ioutil.ReadFile(MyYaml + yamltemplate)
+	vservice := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(vservice, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+	reGw := regexp.MustCompile(`REPLACE_GW`)
+	gwRepl := reGw.ReplaceAllString(podRepl, gateway)
+
+	return gwRepl
+}
+
+func GetCpodConnectService(namespace string, gateway string, podname string, agent string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/nextensio_connect_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -31,14 +41,26 @@ func GetAgentVservice(namespace string, gateway string, podname string, agent st
 	return gwRepl
 }
 
-func GetAppVservice(namespace string, gateway string, podname string, app string, utype string) string {
-	var yamltemplate string
-	if utype == "A" {
-		yamltemplate = "/nextensio_for_user.yaml"
-	} else {
-		yamltemplate = "/nextensio_for.yaml"
+func GetNxtForApodService(namespace string, gateway string, podname string, hostname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/nextensio_for_apod.yaml")
+	if err != nil {
+		log.Fatal(err)
 	}
-	content, err := ioutil.ReadFile(MyYaml + yamltemplate)
+	vservice := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(vservice, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+	reHost := regexp.MustCompile(`REPLACE_HOST_NAME`)
+	hostRepl := reHost.ReplaceAllString(podRepl, hostname)
+	reGw := regexp.MustCompile(`REPLACE_GW`)
+	gwRepl := reGw.ReplaceAllString(hostRepl, gateway)
+
+	return gwRepl
+}
+
+func GetNxtForCpodService(namespace string, gateway string, podname string, app string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/nextensio_for_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,8 +77,38 @@ func GetAppVservice(namespace string, gateway string, podname string, app string
 	return gwRepl
 }
 
-func GetService(namespace string, podname string) string {
-	content, err := ioutil.ReadFile(MyYaml + "/service.yaml")
+func GetOutsideService(namespace string, podname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/service_outside.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	service := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(service, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+
+	return podRepl
+}
+
+func GetApodInService(namespace string, podname string, hostname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/service_apod_in.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	service := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(service, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+	reHost := regexp.MustCompile(`REPLACE_HOST_NAME`)
+	hostRepl := reHost.ReplaceAllString(podRepl, hostname)
+
+	return hostRepl
+}
+
+func GetCpodInService(namespace string, podname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/service_cpod_in.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -122,14 +174,30 @@ func GetExtSvc(gateway string) string {
 	return svcRepl
 }
 
-func GetDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string, podtype string) string {
-	var yamltemplate string
-	if podtype == "C" {
-		yamltemplate = "/deploy_cpod.yaml"
-	} else {
-		yamltemplate = "/deploy_apod.yaml"
+func GetApodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/deploy_apod.yaml")
+	if err != nil {
+		log.Fatal(err)
 	}
-	content, err := ioutil.ReadFile(MyYaml + yamltemplate)
+	deploy := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(deploy, namespace)
+	reImg := regexp.MustCompile(`REPLACE_IMAGE`)
+	deplRepl := reImg.ReplaceAllString(nspcRepl, image)
+	reMongo := regexp.MustCompile(`REPLACE_MONGO`)
+	mongoRepl := reMongo.ReplaceAllString(deplRepl, mongo)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(mongoRepl, podname)
+	reClu := regexp.MustCompile(`REPLACE_CLUSTER`)
+	cluRepl := reClu.ReplaceAllString(podRepl, cluster)
+	reDns := regexp.MustCompile(`REPLACE_MY_DNS`)
+	dnsRepl := reDns.ReplaceAllString(cluRepl, dns)
+
+	return dnsRepl
+}
+
+func GetCpodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/deploy_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}

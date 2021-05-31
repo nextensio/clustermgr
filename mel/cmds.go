@@ -33,6 +33,7 @@ func Cmdline() bool {
 		return false
 	}
 
+	// TODO: revisit this
 	if *replIgw == true {
 		fmt.Println(GetIngressGw(*gw))
 	} else if *replEgw == true {
@@ -44,13 +45,13 @@ func Cmdline() bool {
 	} else if *replConsul == true {
 		fmt.Println(GetConsul(*myip, *cluster))
 	} else if *replDeploy == true {
-		fmt.Println(GetDeploy(*namespace, *image, *mongo, *pod, *cluster, *dns, "C"))
+		fmt.Println(GetCpodDeploy(*namespace, *image, *mongo, *pod, *cluster, *dns))
 	} else if *replAgtVsvc == true {
-		fmt.Println(GetAgentVservice(*namespace, *gw, *pod, *agent, "C"))
+		fmt.Println(GetCpodConnectService(*namespace, *gw, *pod, *agent))
 	} else if *replAppVsvc == true {
-		fmt.Println(GetAppVservice(*namespace, *gw, *pod, *agent, "C"))
+		fmt.Println(GetNxtForCpodService(*namespace, *gw, *pod, *agent))
 	} else if *replSvc == true {
-		fmt.Println(GetService(*namespace, *pod))
+		fmt.Println(GetOutsideService(*namespace, *pod))
 	}
 
 	return true
