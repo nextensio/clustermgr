@@ -2,7 +2,7 @@ apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
 metadata:
   namespace: REPLACE_NAMESPACE
-  name: app-vs-REPLACE_POD_NAME
+  name: app-vs-REPLACE_HOST_NAME
 spec:
   gateways:
   - default/nextensio-ingressgateway
@@ -12,9 +12,9 @@ spec:
   - match:
     - headers:
         x-nextensio-for:
-          prefix: REPLACE_POD_NAME
+          prefix: REPLACE_HOST_NAME
     route:
     - destination:
-        host: REPLACE_POD_NAME-in
+        host: REPLACE_HOST_NAME-in
         port:
           number: 80

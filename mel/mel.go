@@ -89,14 +89,14 @@ func yamlFile(file string, yaml string) string {
 //
 //-------------------------------Pod Deployment & Namespace-------------------------------
 
-const apodReplicas = 1
+const apodReplicas = 2
 const cpodReplicas = 1
 
 // Generate virtual service to handle Cpod to Apod traffic based on x-nextensio-for
 // header whose value is a pod name
 func generateNxtForApod(t string, podname string, idx int) string {
 	hostname := podname + fmt.Sprintf("-%d", idx)
-	file := "/tmp/nxtfor-" + t + "-" + podname + ".yaml"
+	file := "/tmp/nxtfor-" + t + "-" + hostname + ".yaml"
 	yaml := GetNxtForApodService(t, getGwName(MyCluster), podname, hostname)
 	return yamlFile(file, yaml)
 }
@@ -175,7 +175,7 @@ func generateOutsideService(tenant string, podname string) string {
 // Generate service for inter-cluster traffic coming into an Apod
 func generateApodInService(tenant string, podname string, idx int) string {
 	hostname := podname + fmt.Sprintf("-%d", idx)
-	file := "/tmp/service-inside-" + tenant + "-" + podname + ".yaml"
+	file := "/tmp/service-inside-" + tenant + "-" + hostname + ".yaml"
 	yaml := GetApodInService(tenant, podname, hostname)
 	return yamlFile(file, yaml)
 }
