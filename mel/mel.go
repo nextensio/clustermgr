@@ -60,6 +60,17 @@ func kubectlApply(file string) error {
 	return nil
 }
 
+func kubectlDelete(file string) error {
+	cmd := exec.Command("kubectl", "delete", "-f", file)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		glog.Error("kubectl delete ", file, " failed: ", string(out))
+		return err
+	}
+
+	return nil
+}
+
 func yamlFile(file string, yaml string) string {
 	f, err := os.Create(file)
 	if err != nil {
@@ -211,6 +222,25 @@ func createApodService(tenant string, podname string) error {
 	return err
 }
 
+func deleteApodService(tenant string, podname string) error {
+	file := "/tmp/service-outside-" + tenant + "-" + podname + ".yaml"
+	err := kubectlDelete(file)
+	if err != nil {
+		return nil
+	}
+
+	for i := 0; i < apodReplicas; i++ {
+		// Repeat for each replica
+		hostname := podname + fmt.Sprintf("-%d", i)
+		file = "/tmp/service-inside-" + tenant + "-" + hostname + ".yaml"
+		err = kubectlDelete(file)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func createCpodService(tenant string, podname string) error {
 	var err error
 	var file string
@@ -232,6 +262,20 @@ func createCpodService(tenant string, podname string) error {
 	return err
 }
 
+func deleteCpodService(tenant string, podname string) error {
+	file := "/tmp/service-outside-" + tenant + "-" + podname + ".yaml"
+	err := kubectlDelete(file)
+	if err != nil {
+		return err
+	}
+	file = "/tmp/service-inside-" + tenant + "-" + podname + ".yaml"
+	err = kubectlDelete(file)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func createDeploy(ct *ClusterConfig) error {
 	for i := 1; i <= ct.Apods; i++ {
 		podname := getPodName(i, "A")
@@ -248,6 +292,22 @@ func createDeploy(ct *ClusterConfig) error {
 			return err
 		}
 	}
+	// Now try to delete the extra deployments if any. If there are no
+	// extra deployments, there will be an error attempting to delete and
+	// we will automatically break out of the loop
+	var err error = nil
+	for i := ct.Apods + 1; err == nil; i++ {
+		podname := getPodName(i, "A")
+		err = deleteApodService(ct.Tenant, podname)
+		if err != nil {
+			break
+		}
+		file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
+		err = kubectlDelete(file)
+		if err != nil {
+			break
+		}
+	}
 	for i := 1; i <= ct.Cpods; i++ {
 		podname := getPodName(i, "C")
 		file := generateCpodDeploy(ct, podname)
@@ -261,6 +321,22 @@ func createDeploy(ct *ClusterConfig) error {
 		err = createCpodService(ct.Tenant, podname)
 		if err != nil {
 			return err
+		}
+	}
+	// Now try to delete the extra deployments if any. If there are no
+	// extra deployments, there will be an error attempting to delete and
+	// we will automatically break out of the loop
+	err = nil
+	for i := ct.Cpods + 1; err == nil; i++ {
+		podname := getPodName(i, "C")
+		err = deleteCpodService(ct.Tenant, podname)
+		if err != nil {
+			break
+		}
+		file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
+		err = kubectlDelete(file)
+		if err != nil {
+			break
 		}
 	}
 

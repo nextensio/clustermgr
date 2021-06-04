@@ -120,15 +120,15 @@ func DBFindAllNamespaces() []Namespace {
 }
 
 type ClusterConfig struct {
-	Id      string `json:"id" bson:"_id"` // ClusterID:TenantID
-	Cluster string `json:"cluster" bson:"cluster"`
-	Tenant  string `json:"tenant" bson:"tenant"`
-	Image   string `json:"image" bson:"image"`
-	Apods    int   `json:"apods" bson:"apods"`
-	Cpods    int   `json:"cpods" bson:"cpods"`
-	NextApod int   `json:"nextapod" bson:"nextapod"`
-	NextCpod int   `json:"nextcpod" bson:"nextcpod"`
-	Version int    `json:"version" bson:"version"`
+	Id       string `json:"id" bson:"_id"` // ClusterID:TenantID
+	Cluster  string `json:"cluster" bson:"cluster"`
+	Tenant   string `json:"tenant" bson:"tenant"`
+	Image    string `json:"image" bson:"image"`
+	Apods    int    `json:"apods" bson:"apods"`
+	Cpods    int    `json:"cpods" bson:"cpods"`
+	NextApod int    `json:"nextapod" bson:"nextapod"`
+	NextCpod int    `json:"nextcpod" bson:"nextcpod"`
+	Version  int    `json:"version" bson:"version"`
 }
 
 // Find all tenants present in a cluster
@@ -298,4 +298,3 @@ func DBFindAllBundleClusterSvcsForTenant(tenant string) []ClusterService {
 
 	return svcs
 }
-
