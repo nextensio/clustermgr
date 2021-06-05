@@ -7,7 +7,7 @@ spec:
   gateways:
   - default/nextensio-ingressgateway
   hosts:
-  - "REPLACE_GW"
+  - "*"
   http:
   - match:
     - headers:
