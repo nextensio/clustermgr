@@ -87,7 +87,6 @@ func DBFindAllGateways() []NxtGateway {
 type Namespace struct {
 	ID       string `json:"_id" bson:"_id"`
 	Name     string `json:"name" bson:"name"`
-	Image    string `json:"image" bson:"image"`
 	Database string `json:"database" bson:"database"`
 	Version  int    `json:"version" bson:"version"`
 }
@@ -124,10 +123,8 @@ type ClusterConfig struct {
 	Cluster  string `json:"cluster" bson:"cluster"`
 	Tenant   string `json:"tenant" bson:"tenant"`
 	Image    string `json:"image" bson:"image"`
-	Apods    int    `json:"apods" bson:"apods"`
-	Cpods    int    `json:"cpods" bson:"cpods"`
-	NextApod int    `json:"nextapod" bson:"nextapod"`
-	NextCpod int    `json:"nextcpod" bson:"nextcpod"`
+	ApodRepl int    `json:"apodrepl" bson:"apodrepl"`
+	ApodSets int    `json:"apodsets" bson:"apodsets"`
 	Version  int    `json:"version" bson:"version"`
 }
 
@@ -165,6 +162,8 @@ func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
 	return nil
 }
 
+// The Pod here indicates the "pod set" that this user should
+// connect to, each pod set has its own number of replicas etc..
 type ClusterUser struct {
 	Uid       string   `json:"uid" bson:"_id"`
 	Tenant    string   `json:"tenant" bson:"tenant"`
@@ -202,33 +201,45 @@ func DBFindAllClusterUsersForTenant(tenant string) []ClusterUser {
 	return users
 }
 
+// The Pod here indicates the "pod set" that this user should
+// connect to, each pod set has its own number of replicas etc..
+type ClusterBundle struct {
+	Uid       string   `json:"uid" bson:"_id"`
+	Tenant    string   `json:"tenant" bson:"tenant"`
+	Pod       string   `json:"pod" bson:"pod"`
+	Connectid string   `json:"connectid" bson:"connectid"`
+	Services  []string `json:"services" bson:"services"`
+	Version   int      `json:"version" bson:"version"`
+	CpodRepl  int      `json:"cpodrepl" bson:"cpodrepl"`
+}
+
 // Find a specific tenant's connector within a cluster
-func DBFindClusterBundle(tenant string, bundleid string) *ClusterUser {
-	uid := tenant + ":" + bundleid
-	var user ClusterUser
+func DBFindClusterBundle(tenant string, bundleid string) *ClusterBundle {
+	bid := tenant + ":" + bundleid
+	var bundle ClusterBundle
 	err := bundleCltn.FindOne(
 		context.TODO(),
-		bson.M{"_id": uid},
-	).Decode(&user)
+		bson.M{"_id": bid},
+	).Decode(&bundle)
 	if err != nil {
 		return nil
 	}
-	return &user
+	return &bundle
 }
 
-func DBFindAllClusterBundlesForTenant(tenant string) []ClusterUser {
-	var users []ClusterUser
+func DBFindAllClusterBundlesForTenant(tenant string) []ClusterBundle {
+	var bundles []ClusterBundle
 
 	cursor, err := bundleCltn.Find(context.TODO(), bson.M{"tenant": tenant})
 	if err != nil {
 		return nil
 	}
-	err = cursor.All(context.TODO(), &users)
+	err = cursor.All(context.TODO(), &bundles)
 	if err != nil {
 		return nil
 	}
 
-	return users
+	return bundles
 }
 
 type ClusterService struct {

@@ -6,7 +6,7 @@ metadata:
   labels:
     app: REPLACE_POD_NAME
 spec:
-  replicas: 2
+  replicas: REPLACE_REPLICAS
   selector:
     matchLabels:
       app: REPLACE_POD_NAME

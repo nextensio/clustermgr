@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
 	"regexp"
@@ -23,7 +24,7 @@ func GetApodConnectService(namespace string, gateway string, podname string) str
 	return gwRepl
 }
 
-func GetCpodConnectService(namespace string, gateway string, podname string, agent string) string {
+func GetCpodConnectService(namespace string, gateway string, podname string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/nextensio_connect_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -33,10 +34,8 @@ func GetCpodConnectService(namespace string, gateway string, podname string, age
 	nspcRepl := reNspc.ReplaceAllString(vservice, namespace)
 	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
 	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
-	reAgent := regexp.MustCompile(`REPLACE_AGENT_NAME`)
-	agentRepl := reAgent.ReplaceAllString(podRepl, agent)
 	reGw := regexp.MustCompile(`REPLACE_GW`)
-	gwRepl := reGw.ReplaceAllString(agentRepl, gateway)
+	gwRepl := reGw.ReplaceAllString(podRepl, gateway)
 
 	return gwRepl
 }
@@ -59,7 +58,7 @@ func GetNxtForApodService(namespace string, gateway string, podname string, host
 	return gwRepl
 }
 
-func GetNxtForCpodService(namespace string, gateway string, podname string, app string) string {
+func GetNxtForCpodService(namespace string, gateway string, podname string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/nextensio_for_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -69,16 +68,14 @@ func GetNxtForCpodService(namespace string, gateway string, podname string, app 
 	nspcRepl := reNspc.ReplaceAllString(vservice, namespace)
 	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
 	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
-	reAgent := regexp.MustCompile(`REPLACE_APP_NAME`)
-	agentRepl := reAgent.ReplaceAllString(podRepl, app)
 	reGw := regexp.MustCompile(`REPLACE_GW`)
-	gwRepl := reGw.ReplaceAllString(agentRepl, gateway)
+	gwRepl := reGw.ReplaceAllString(podRepl, gateway)
 
 	return gwRepl
 }
 
-func GetOutsideService(namespace string, podname string) string {
-	content, err := ioutil.ReadFile(MyYaml + "/service_outside.yaml")
+func GetApodOutService(namespace string, podname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/service_apod_out.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -105,6 +102,20 @@ func GetApodInService(namespace string, podname string, hostname string) string 
 	hostRepl := reHost.ReplaceAllString(podRepl, hostname)
 
 	return hostRepl
+}
+
+func GetCpodOutService(namespace string, podname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/service_cpod_out.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	service := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(service, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+
+	return podRepl
 }
 
 func GetCpodInService(namespace string, podname string) string {
@@ -174,7 +185,7 @@ func GetExtSvc(gateway string) string {
 	return svcRepl
 }
 
-func GetApodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string) string {
+func GetApodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string, replicas int) string {
 	content, err := ioutil.ReadFile(MyYaml + "/deploy_apod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -192,11 +203,13 @@ func GetApodDeploy(namespace string, image string, mongo string, podname string,
 	cluRepl := reClu.ReplaceAllString(podRepl, cluster)
 	reDns := regexp.MustCompile(`REPLACE_MY_DNS`)
 	dnsRepl := reDns.ReplaceAllString(cluRepl, dns)
+	reRepl := regexp.MustCompile(`REPLACE_REPLICAS`)
+	replRepl := reRepl.ReplaceAllString(dnsRepl, fmt.Sprintf("%d", replicas))
 
-	return dnsRepl
+	return replRepl
 }
 
-func GetCpodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string) string {
+func GetCpodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string, replicas int) string {
 	content, err := ioutil.ReadFile(MyYaml + "/deploy_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -214,8 +227,10 @@ func GetCpodDeploy(namespace string, image string, mongo string, podname string,
 	cluRepl := reClu.ReplaceAllString(podRepl, cluster)
 	reDns := regexp.MustCompile(`REPLACE_MY_DNS`)
 	dnsRepl := reDns.ReplaceAllString(cluRepl, dns)
+	reRepl := regexp.MustCompile(`REPLACE_REPLICAS`)
+	replRepl := reRepl.ReplaceAllString(dnsRepl, fmt.Sprintf("%d", replicas))
 
-	return dnsRepl
+	return replRepl
 }
 
 func GetConsul(myip string, cluster string) string {
