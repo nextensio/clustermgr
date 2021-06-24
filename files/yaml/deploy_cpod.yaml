@@ -13,6 +13,8 @@ spec:
   serviceName: "minion"
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/statsInclusionPrefixes: listener,cluster.outbound,cluster_manager,listener_manager,http_mixer_filter,tcp_mixer_filter,server,cluster.xds-grpc
       labels:
         app: REPLACE_POD_NAME
         role: minion
