@@ -86,7 +86,7 @@ func yamlFile(file string, yaml string) string {
 // header whose value is a pod name
 func generateNxtForApod(t string, podname string, idx int) string {
 	hostname := podname + fmt.Sprintf("-%d", idx)
-	file := "/tmp/nxtfor-" + hostname + ".yaml"
+	file := "/tmp/" + t + "/nxtfor-" + hostname + ".yaml"
 	yaml := GetNxtForApodService(t, getGwName(MyCluster), podname, hostname)
 	return yamlFile(file, yaml)
 }
@@ -112,7 +112,7 @@ func createNxtForApod(t string, podname string, replicas int) error {
 // Generate virtual service to handle user connections into an Apod based
 // on x-nextensio-connect header whose value is a pod name
 func generateApodNxtConnect(t string, podname string) string {
-	file := "/tmp/nxtconnect-" + podname + ".yaml"
+	file := "/tmp/" + t + "/nxtconnect-" + podname + ".yaml"
 	yaml := GetApodConnectService(t, getGwName(MyCluster), podname)
 	return yamlFile(file, yaml)
 }
@@ -142,21 +142,21 @@ func createApodForConnect(ct *ClusterConfig) error {
 
 // Generate StatefulSet deployment for Apod
 func generateApodDeploy(ct *ClusterConfig, podname string, replicas int) string {
-	file := "/tmp/deploy-" + podname + ".yaml"
+	file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
 	yaml := GetApodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS, replicas)
 	return yamlFile(file, yaml)
 }
 
 // Generate StatefulSet deployment for Cpod
 func generateCpodDeploy(ct *ClusterConfig, podname string, replicas int) string {
-	file := "/tmp/deploy-" + podname + ".yaml"
+	file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
 	yaml := GetCpodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS, replicas)
 	return yamlFile(file, yaml)
 }
 
 // Generate service for handling outside connections into an Apod
 func generateApodOutService(tenant string, podname string) string {
-	file := "/tmp/service-outside-" + podname + ".yaml"
+	file := "/tmp/" + tenant + "/service-outside-" + podname + ".yaml"
 	yaml := GetApodOutService(tenant, podname)
 	return yamlFile(file, yaml)
 }
@@ -164,21 +164,21 @@ func generateApodOutService(tenant string, podname string) string {
 // Generate service for inter-cluster traffic coming into an Apod
 func generateApodInService(tenant string, podname string, idx int) string {
 	hostname := podname + fmt.Sprintf("-%d", idx)
-	file := "/tmp/service-inside-" + hostname + ".yaml"
+	file := "/tmp/" + tenant + "/service-inside-" + hostname + ".yaml"
 	yaml := GetApodInService(tenant, podname, hostname)
 	return yamlFile(file, yaml)
 }
 
 // Generate service for  traffic coming into a Cpod from within the nextensio network
 func generateCpodInService(tenant string, podname string) string {
-	file := "/tmp/service-inside-" + podname + ".yaml"
+	file := "/tmp/" + tenant + "/service-inside-" + podname + ".yaml"
 	yaml := GetCpodInService(tenant, podname)
 	return yamlFile(file, yaml)
 }
 
 // Generate service for  traffic coming into a Cpod from connectors
 func generateCpodOutService(tenant string, podname string) string {
-	file := "/tmp/service-outside-" + podname + ".yaml"
+	file := "/tmp/" + tenant + "/service-outside-" + podname + ".yaml"
 	yaml := GetCpodOutService(tenant, podname)
 	return yamlFile(file, yaml)
 }
@@ -209,7 +209,7 @@ func createApodService(tenant string, podname string, replicas int) error {
 
 func deleteApodService(tenant string, podname string, replicaStart int, outside bool) error {
 	if outside {
-		file := "/tmp/service-outside-" + tenant + "-" + podname + ".yaml"
+		file := "/tmp/" + tenant + "/service-outside-" + podname + ".yaml"
 		err := kubectlDelete(file)
 		if err != nil {
 			return nil
@@ -221,7 +221,7 @@ func deleteApodService(tenant string, podname string, replicaStart int, outside 
 	for i := replicaStart; err == nil; i++ {
 		// Repeat for each replica
 		hostname := podname + fmt.Sprintf("-%d", i)
-		file := "/tmp/service-inside-" + tenant + "-" + hostname + ".yaml"
+		file := "/tmp/" + tenant + "/service-inside-" + hostname + ".yaml"
 		err = kubectlDelete(file)
 		if err != nil {
 			return err
@@ -267,7 +267,7 @@ func createAgentDeployments(ct *ClusterConfig) error {
 		if err != nil {
 			// do nothing, delete this pod
 		}
-		file := "/tmp/deploy-" + ct.Tenant + "-" + podname + ".yaml"
+		file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
 		err = kubectlDelete(file)
 		if err != nil {
 			break
@@ -295,7 +295,7 @@ func createNamespace(ns string) error {
 	}
 
 	// Copy the docker keys to the new namespace
-	file := "/tmp/" + ns + "-regcred.yaml"
+	file := "/tmp/" + ns + "/regcred.yaml"
 	cmd = exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
@@ -331,7 +331,8 @@ func createTenants(clcfg *ClusterConfig) {
 
 	_, ok1 := nspscVersion[clcfg.Tenant]
 	if !ok1 {
-		// Unknown tenant, so create namespace
+		// Unknown tenant, so create tenant dir, then namespace.
+		_ = os.Mkdir("/tmp/"+clcfg.Tenant, 0666)
 		if createNamespace(clcfg.Tenant) == nil {
 			nspscVersion[clcfg.Tenant] = 1
 		}
@@ -576,7 +577,7 @@ func createIngressGateway() {
 // Generate virtual service to handle user connections into a Cpod based
 // on x-nextensio-connect header whose value is currently the connector name
 func generateCpodNxtConnect(a ClusterBundle) string {
-	file := "/tmp/nxtconnect-" + a.Connectid + ".yaml"
+	file := "/tmp/" + a.Tenant + "/nxtconnect-" + a.Connectid + ".yaml"
 	yaml := GetCpodConnectService(a.Tenant, getGwName(MyCluster), a.Connectid)
 	return yamlFile(file, yaml)
 }
@@ -597,7 +598,7 @@ func createCpodNxtConnect(a ClusterBundle) error {
 // Generate virtual service to handle user connections into a Cpod based
 // on x-nextensio-for header whose value is currently the connector name
 func generateCpodNxtFor(a ClusterBundle) string {
-	file := "/tmp/nxtfor-" + a.Connectid + ".yaml"
+	file := "/tmp/" + a.Tenant + "/nxtfor-" + a.Connectid + ".yaml"
 	yaml := GetNxtForCpodService(a.Tenant, getGwName(MyCluster), a.Connectid)
 	return yamlFile(file, yaml)
 }

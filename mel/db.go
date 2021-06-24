@@ -22,8 +22,6 @@ var clusterCfgCltn *mongo.Collection
 var clusterDB *mongo.Database
 var usersCltn *mongo.Collection
 var bundleCltn *mongo.Collection
-var userviceCltn *mongo.Collection
-var bserviceCltn *mongo.Collection
 
 func ClusterGetDBName(cl string) string {
 	return ("Nxt-" + cl + "-DB")
@@ -55,8 +53,6 @@ func DBConnect() bool {
 	clusterDB = dbClient.Database(ClusterGetDBName(MyCluster))
 	usersCltn = clusterDB.Collection("NxtUsers")
 	bundleCltn = clusterDB.Collection("NxtConnectors")
-	userviceCltn = clusterDB.Collection("NxtUServices")
-	bserviceCltn = clusterDB.Collection("NxtBServices")
 
 	return true
 }
@@ -240,72 +236,4 @@ func DBFindAllClusterBundlesForTenant(tenant string) []ClusterBundle {
 	}
 
 	return bundles
-}
-
-type ClusterService struct {
-	Sid     string   `json:"sid" bson:"_id"`
-	Tenant  string   `json:"tenant" bson:"tenant"`
-	Agents  []string `json:"agents" bson:"agents"`
-	Pods    []int    `json:"pods" bson:"pods"`
-	Version int      `json:"version" bson:"version"`
-}
-
-// Find a specific tenant user service within a cluster
-func DBFindUserClusterSvc(tenant string, service string) *ClusterService {
-	sid := tenant + ":" + service
-	var svc ClusterService
-	err := userviceCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": sid},
-	).Decode(&svc)
-	if err != nil {
-		return nil
-	}
-	return &svc
-}
-
-// Find all user services within a cluster for a specific tenant
-func DBFindAllUserClusterSvcsForTenant(tenant string) []ClusterService {
-	var svcs []ClusterService
-
-	cursor, err := userviceCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &svcs)
-	if err != nil {
-		return nil
-	}
-
-	return svcs
-}
-
-// Find a specific tenant connector service within a cluster
-func DBFindBundleClusterSvc(tenant string, service string) *ClusterService {
-	sid := tenant + ":" + service
-	var svc ClusterService
-	err := bserviceCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": sid},
-	).Decode(&svc)
-	if err != nil {
-		return nil
-	}
-	return &svc
-}
-
-// Find all connector services within a cluster for a specific tenant
-func DBFindAllBundleClusterSvcsForTenant(tenant string) []ClusterService {
-	var svcs []ClusterService
-
-	cursor, err := bserviceCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &svcs)
-	if err != nil {
-		return nil
-	}
-
-	return svcs
 }
