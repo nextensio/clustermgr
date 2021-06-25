@@ -82,6 +82,20 @@ func yamlFile(file string, yaml string) string {
 	return file
 }
 
+// Generate envoy flow control settings for istio ingress/egress gw
+func generateIstioFlowControl() string {
+	file := "/tmp/istio_flow_control.yaml"
+	yaml := GetFlowControl("istio-system")
+	return yamlFile(file, yaml)
+}
+
+// Generate envoy flow control settings per tenant
+func generateTenantFlowControl(t string) string {
+	file := "/tmp/" + t + "/flow_control.yaml"
+	yaml := GetFlowControl(t)
+	return yamlFile(file, yaml)
+}
+
 // Generate virtual service to handle Cpod to Apod traffic based on x-nextensio-for
 // header whose value is a pod name
 func generateNxtForApod(t string, podname string, idx int) string {
@@ -294,8 +308,17 @@ func createNamespace(ns string) error {
 		return err
 	}
 
+	file := generateTenantFlowControl(ns)
+	if file == "" {
+		return errors.New("yaml fail")
+	}
+	err = kubectlApply(file)
+	if err != nil {
+		return err
+	}
+
 	// Copy the docker keys to the new namespace
-	file := "/tmp/" + ns + "/regcred.yaml"
+	file = "/tmp/" + ns + "/regcred.yaml"
 	cmd = exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
@@ -478,11 +501,20 @@ func generateIngressGw() string {
 }
 
 func createIngressGw() error {
-	file := generateIngressGw()
+	file := generateIstioFlowControl()
 	if file == "" {
 		return errors.New("yaml fail")
 	}
 	err := kubectlApply(file)
+	if err != nil {
+		return err
+	}
+
+	file = generateIngressGw()
+	if file == "" {
+		return errors.New("yaml fail")
+	}
+	err = kubectlApply(file)
 	if err != nil {
 		return err
 	}

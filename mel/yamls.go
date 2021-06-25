@@ -246,3 +246,15 @@ func GetConsul(myip string, cluster string) string {
 
 	return clusRepl
 }
+
+func GetFlowControl(namespace string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/flow_control.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fc := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(fc, namespace)
+
+	return nspcRepl
+}
