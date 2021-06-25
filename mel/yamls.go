@@ -185,7 +185,7 @@ func GetExtSvc(gateway string) string {
 	return svcRepl
 }
 
-func GetApodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string, replicas int) string {
+func GetApodDeploy(namespace string, image string, mongo string, podname string, cluster string, replicas int) string {
 	content, err := ioutil.ReadFile(MyYaml + "/deploy_apod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -201,15 +201,13 @@ func GetApodDeploy(namespace string, image string, mongo string, podname string,
 	podRepl := rePod.ReplaceAllString(mongoRepl, podname)
 	reClu := regexp.MustCompile(`REPLACE_CLUSTER`)
 	cluRepl := reClu.ReplaceAllString(podRepl, cluster)
-	reDns := regexp.MustCompile(`REPLACE_MY_DNS`)
-	dnsRepl := reDns.ReplaceAllString(cluRepl, dns)
 	reRepl := regexp.MustCompile(`REPLACE_REPLICAS`)
-	replRepl := reRepl.ReplaceAllString(dnsRepl, fmt.Sprintf("%d", replicas))
+	replRepl := reRepl.ReplaceAllString(cluRepl, fmt.Sprintf("%d", replicas))
 
 	return replRepl
 }
 
-func GetCpodDeploy(namespace string, image string, mongo string, podname string, cluster string, dns string, replicas int) string {
+func GetCpodDeploy(namespace string, image string, mongo string, podname string, cluster string, replicas int) string {
 	content, err := ioutil.ReadFile(MyYaml + "/deploy_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -225,15 +223,13 @@ func GetCpodDeploy(namespace string, image string, mongo string, podname string,
 	podRepl := rePod.ReplaceAllString(mongoRepl, podname)
 	reClu := regexp.MustCompile(`REPLACE_CLUSTER`)
 	cluRepl := reClu.ReplaceAllString(podRepl, cluster)
-	reDns := regexp.MustCompile(`REPLACE_MY_DNS`)
-	dnsRepl := reDns.ReplaceAllString(cluRepl, dns)
 	reRepl := regexp.MustCompile(`REPLACE_REPLICAS`)
-	replRepl := reRepl.ReplaceAllString(dnsRepl, fmt.Sprintf("%d", replicas))
+	replRepl := reRepl.ReplaceAllString(cluRepl, fmt.Sprintf("%d", replicas))
 
 	return replRepl
 }
 
-func GetConsul(myip string, cluster string) string {
+func GetConsul(myip string, storage string, cluster string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/consul.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -243,8 +239,10 @@ func GetConsul(myip string, cluster string) string {
 	csRepl := reCsl.ReplaceAllString(consul, myip)
 	reClus := regexp.MustCompile(`REPLACE_CLUSTER`)
 	clusRepl := reClus.ReplaceAllString(csRepl, cluster)
+	reStorage := regexp.MustCompile(`REPLACE_STORAGE`)
+	storageRepl := reStorage.ReplaceAllString(clusRepl, storage)
 
-	return clusRepl
+	return storageRepl
 }
 
 func GetFlowControl(namespace string) string {

@@ -14,10 +14,10 @@ import (
 	"github.com/golang/glog"
 )
 
-var ConsulDNS string
 var MyCluster string
 var MyYaml string
-var MyWanIP string
+var ConsulWanIP string
+var ConsulStorage string
 var MyMongo string
 
 var gwVersion map[string]int
@@ -157,14 +157,14 @@ func createApodForConnect(ct *ClusterConfig) error {
 // Generate StatefulSet deployment for Apod
 func generateApodDeploy(ct *ClusterConfig, podname string, replicas int) string {
 	file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
-	yaml := GetApodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS, replicas)
+	yaml := GetApodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, replicas)
 	return yamlFile(file, yaml)
 }
 
 // Generate StatefulSet deployment for Cpod
 func generateCpodDeploy(ct *ClusterConfig, podname string, replicas int) string {
 	file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
-	yaml := GetCpodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, ConsulDNS, replicas)
+	yaml := GetCpodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, replicas)
 	return yamlFile(file, yaml)
 }
 
@@ -376,18 +376,8 @@ func createTenants(clcfg *ClusterConfig) {
 
 //---------------------------------------Consul------------------------------------
 
-func getConsulDNS() string {
-	cmd := exec.Command("kubectl", "get", "svc", MyCluster+"-consul-dns", "-n", "consul-system", "-o", "jsonpath='{.spec.clusterIP}'")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		glog.Error("Cannot get consul DNS IP: ", string(out))
-		return ""
-	}
-	return string(out)
-}
-
 func generateConsul() string {
-	yaml := GetConsul(MyWanIP, MyCluster)
+	yaml := GetConsul(ConsulWanIP, ConsulStorage, MyCluster)
 	return yamlFile("/tmp/consul.yaml", yaml)
 }
 
@@ -732,9 +722,13 @@ func main() {
 	if MyYaml == "UNKNOWN_YAML" {
 		glog.Fatal("Uknown Yaml location")
 	}
-	MyWanIP = GetEnv("MY_WAN_IP", "UNKNOWN_WAN_IP")
-	if MyWanIP == "UNKNOWN_WAN_IP" {
+	ConsulWanIP = GetEnv("CONSUL_WAN_IP", "UNKNOWN_WAN_IP")
+	if ConsulWanIP == "UNKNOWN_WAN_IP" {
 		glog.Fatal("Uknown WAN IP")
+	}
+	ConsulStorage = GetEnv("CONSUL_STORAGE_CLASS", "UNKNOWN_CLASS")
+	if ConsulStorage == "UNKNOWN_CLASS" {
+		glog.Fatal("Uknown Consul Storage Class")
 	}
 	MyMongo = GetEnv("MY_MONGO_URI", "UNKNOWN_MONGO")
 	if MyMongo == "UNKNOWN_MONGO" {
@@ -754,15 +748,6 @@ func main() {
 	// Create consul
 	for {
 		if createConsul() == nil {
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-	// Get the consul server dns IP address
-	for {
-		ConsulDNS = getConsulDNS()
-		if ConsulDNS != "" {
-			ConsulDNS = ConsulDNS[1 : len(ConsulDNS)-1]
 			break
 		}
 		time.Sleep(1 * time.Second)

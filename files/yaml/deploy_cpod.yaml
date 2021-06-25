@@ -43,8 +43,6 @@ spec:
                 fieldPath: status.podIP
           - name: MY_POD_CLUSTER
             value: "REPLACE_CLUSTER"
-          - name: MY_DNS
-            value: REPLACE_MY_DNS
           - name: MY_MONGO_URI
             value: "REPLACE_MONGO"
       imagePullSecrets:

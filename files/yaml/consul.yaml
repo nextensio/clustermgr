@@ -444,6 +444,7 @@ spec:
         resources:
           requests:
             storage: 1Gi
+        storageClassName: REPLACE_STORAGE
 
 ---
 # Source: consul/templates/connect-inject-clusterrole.yaml
