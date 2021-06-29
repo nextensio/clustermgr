@@ -22,6 +22,7 @@ var clusterCfgCltn *mongo.Collection
 var clusterDB *mongo.Database
 var usersCltn *mongo.Collection
 var bundleCltn *mongo.Collection
+var summaryCltn *mongo.Collection
 
 func ClusterGetDBName(cl string) string {
 	return ("Nxt-" + cl + "-DB")
@@ -53,8 +54,88 @@ func DBConnect() bool {
 	clusterDB = dbClient.Database(ClusterGetDBName(MyCluster))
 	usersCltn = clusterDB.Collection("NxtUsers")
 	bundleCltn = clusterDB.Collection("NxtConnectors")
+	summaryCltn = clusterDB.Collection("NxtTenantSummary")
 
 	return true
+}
+
+type ConnectorSummary struct {
+	Image     string `bson:"image"`
+	Connectid string `bson:"connectid"`
+	Cpodrepl  int    `bson:"cpodrepl"`
+}
+
+type TenantSummary struct {
+	Tenant     string             `bson:"_id"`
+	Image      string             `bson:"image"`
+	ApodRepl   int                `bson:"apodrepl"`
+	ApodSets   int                `bson:"apodsets"`
+	Connectors []ConnectorSummary `bson:"connectors"`
+}
+
+func DBFindAllTenantSummary() ([]TenantSummary, error) {
+	var summary []TenantSummary
+
+	cursor, err := summaryCltn.Find(context.TODO(), bson.M{})
+	if err != nil {
+		return summary, err
+	}
+	err = cursor.All(context.TODO(), &summary)
+	if err != nil {
+		return summary, err
+	}
+
+	return summary, nil
+}
+
+func DBFindTenantSummary(tenant string) *TenantSummary {
+	var summary TenantSummary
+
+	err := summaryCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": tenant},
+	).Decode(&summary)
+	if err != nil {
+		return nil
+	}
+	return &summary
+}
+
+func DBUpdateTenantSummary(tenant string, summary *TenantSummary) error {
+
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := summaryCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"_id": tenant},
+		bson.D{
+			{"$set", summary},
+		},
+		&opt,
+	)
+
+	if err.Err() != nil {
+		return err.Err()
+	}
+
+	return nil
+}
+
+func DBDeleteTenantSummary(tenant string) error {
+	_, err := summaryCltn.DeleteOne(
+		context.TODO(),
+		bson.M{"_id": tenant},
+	)
+
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
@@ -156,45 +237,6 @@ func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
 		return clcfg
 	}
 	return nil
-}
-
-// The Pod here indicates the "pod set" that this user should
-// connect to, each pod set has its own number of replicas etc..
-type ClusterUser struct {
-	Uid       string   `json:"uid" bson:"_id"`
-	Tenant    string   `json:"tenant" bson:"tenant"`
-	Pod       int      `json:"pod" bson:"pod"`
-	Connectid string   `json:"connectid" bson:"connectid"`
-	Services  []string `json:"services" bson:"services"`
-	Version   int      `json:"version" bson:"version"`
-}
-
-func DBFindClusterUser(tenant string, userid string) *ClusterUser {
-	uid := tenant + ":" + userid
-	var user ClusterUser
-	err := usersCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": uid},
-	).Decode(&user)
-	if err != nil {
-		return nil
-	}
-	return &user
-}
-
-func DBFindAllClusterUsersForTenant(tenant string) []ClusterUser {
-	var users []ClusterUser
-
-	cursor, err := usersCltn.Find(context.TODO(), bson.M{"tenant": tenant})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &users)
-	if err != nil {
-		return nil
-	}
-
-	return users
 }
 
 // The Pod here indicates the "pod set" that this user should

@@ -20,12 +20,31 @@ var ConsulWanIP string
 var ConsulStorage string
 var MyMongo string
 
+type bundleInfo struct {
+	version   int
+	markSweep bool
+}
+type tenantInfo struct {
+	created       bool
+	markSweep     bool
+	tenantSummary *TenantSummary
+	deployVersion int
+	bundleInfo    map[string]*bundleInfo
+}
+
+var tenants map[string]*tenantInfo
 var gwVersion map[string]int
-var nspscVersion map[string]int
-var deployVersion map[string]int
-var apodForConnectVersion map[string]int
-var bundleVersion map[string]int
 var clusterMesh map[string]int
+
+func makeTenantInfo(tenant string) *tenantInfo {
+	t := tenantInfo{}
+	t.tenantSummary = &TenantSummary{}
+	t.created = false
+	t.markSweep = true
+	t.deployVersion = -1
+	t.bundleInfo = make(map[string]*bundleInfo)
+	return &t
+}
 
 func GetEnv(key string, defaultValue string) string {
 	v := os.Getenv(key)
@@ -55,15 +74,16 @@ func kubectlApply(file string) error {
 	return nil
 }
 
-func kubectlDelete(file string) error {
+func kubectlDelete(file string) (string, error) {
 	cmd := exec.Command("kubectl", "delete", "-f", file)
 	out, err := cmd.CombinedOutput()
+	glog.Error("kubectl delete ", file, " result: ", string(out))
 	if err != nil {
 		glog.Error("kubectl delete ", file, " failed: ", string(out))
-		return err
+		return string(out), err
 	}
 
-	return nil
+	return "", nil
 }
 
 func yamlFile(file string, yaml string) string {
@@ -123,6 +143,24 @@ func createNxtForApod(t string, podname string, replicas int) error {
 	return err
 }
 
+func deleteNxtForApod(t string, podname string, replicaStart int, replicaEnd int) error {
+	var file string
+	for i := replicaStart; i < replicaEnd; i++ {
+		// Repeat for each replica
+		file = generateNxtForApod(t, podname, i)
+		if file == "" {
+			return errors.New("yaml fail")
+		} else {
+			out, err := kubectlDelete(file)
+			if err != nil && !strings.Contains(out, "NotFound") {
+				return err
+			}
+			os.Remove(file)
+		}
+	}
+	return nil
+}
+
 // Generate virtual service to handle user connections into an Apod based
 // on x-nextensio-connect header whose value is a pod name
 func generateApodNxtConnect(t string, podname string) string {
@@ -139,32 +177,30 @@ func createApodNxtConnect(tenant string, podname string) error {
 	return kubectlApply(file)
 }
 
-func createApodForConnect(ct *ClusterConfig) error {
-	for i := 1; i <= ct.ApodSets; i++ {
-		podname := getApodSetName(ct.Tenant, i)
-		err := createNxtForApod(ct.Tenant, podname, ct.ApodRepl)
-		if err != nil {
-			return err
-		}
-		err = createApodNxtConnect(ct.Tenant, podname)
-		if err != nil {
-			return err
-		}
+func deleteApodNxtConnect(tenant string, podname string) error {
+	file := generateApodNxtConnect(tenant, podname)
+	if file == "" {
+		return errors.New("yaml fail")
 	}
+	out, err := kubectlDelete(file)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		return err
+	}
+	os.Remove(file)
 	return nil
 }
 
 // Generate StatefulSet deployment for Apod
-func generateApodDeploy(ct *ClusterConfig, podname string, replicas int) string {
-	file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
-	yaml := GetApodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, replicas)
+func generateApodDeploy(tenant string, image string, podname string, replicas int) string {
+	file := "/tmp/" + tenant + "/deploy-" + podname + ".yaml"
+	yaml := GetApodDeploy(tenant, image, MyMongo, podname, MyCluster, replicas)
 	return yamlFile(file, yaml)
 }
 
 // Generate StatefulSet deployment for Cpod
-func generateCpodDeploy(ct *ClusterConfig, podname string, replicas int) string {
-	file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
-	yaml := GetCpodDeploy(ct.Tenant, ct.Image, MyMongo, podname, MyCluster, replicas)
+func generateCpodDeploy(tenant string, image string, podname string, replicas int) string {
+	file := "/tmp/" + tenant + "/deploy-" + podname + ".yaml"
+	yaml := GetCpodDeploy(tenant, image, MyMongo, podname, MyCluster, replicas)
 	return yamlFile(file, yaml)
 }
 
@@ -221,34 +257,96 @@ func createApodService(tenant string, podname string, replicas int) error {
 	return err
 }
 
-func deleteApodService(tenant string, podname string, replicaStart int, outside bool) error {
+func deleteApodService(tenant string, podname string, replicaStart int, replicaEnd int, outside bool) error {
 	if outside {
 		file := "/tmp/" + tenant + "/service-outside-" + podname + ".yaml"
-		err := kubectlDelete(file)
-		if err != nil {
-			return nil
+		out, err := kubectlDelete(file)
+		// clustermgr might have crashed while in here and come back up and now
+		// we might be trying to delete something thats already deleted, so dont
+		// panic in that case
+		if err != nil && !strings.Contains(out, "NotFound") {
+			return err
 		}
-		exec.Command("rm", file)
+		os.Remove(file)
 	}
 
-	var err error = nil
-	for i := replicaStart; err == nil; i++ {
+	for i := replicaStart; i < replicaEnd; i++ {
 		// Repeat for each replica
 		hostname := podname + fmt.Sprintf("-%d", i)
 		file := "/tmp/" + tenant + "/service-inside-" + hostname + ".yaml"
-		err = kubectlDelete(file)
-		if err != nil {
+		out, err := kubectlDelete(file)
+		// clustermgr might have crashed while in here and come back up and now
+		// we might be trying to delete something thats already deleted, so dont
+		// panic in that case
+		if err != nil && !strings.Contains(out, "NotFound") {
+			glog.Error("Inside service del failed", i)
 			return err
 		}
-		exec.Command("rm", file)
+		os.Remove(file)
 	}
 	return nil
 }
 
 func createAgentDeployments(ct *ClusterConfig) error {
+	t := tenants[ct.Tenant]
+	summary := t.tenantSummary
+
+	// Delete not-needed resources first before appying the new resources
 	for i := 1; i <= ct.ApodSets; i++ {
 		podname := getApodSetName(ct.Tenant, i)
-		file := generateApodDeploy(ct, podname, ct.ApodRepl)
+		err := deleteApodService(ct.Tenant, podname, ct.ApodRepl, summary.ApodRepl, false)
+		if err != nil {
+			return err
+		}
+		err = deleteNxtForApod(ct.Tenant, podname, ct.ApodRepl, summary.ApodRepl)
+		if err != nil {
+			return err
+		}
+	}
+	for i := ct.ApodSets + 1; i <= summary.ApodSets; i++ {
+		podname := getApodSetName(ct.Tenant, i)
+		err := deleteApodService(ct.Tenant, podname, 0, summary.ApodRepl, true)
+		if err != nil {
+			return err
+		}
+		err = deleteNxtForApod(ct.Tenant, podname, 0, summary.ApodRepl)
+		if err != nil {
+			return err
+		}
+		err = deleteApodNxtConnect(ct.Tenant, podname)
+		if err != nil {
+			return err
+		}
+		file := generateApodDeploy(ct.Tenant, summary.Image, podname, summary.ApodRepl)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
+		// clustermgr might have crashed while in here and come back up and now
+		// we might be trying to delete something thats already deleted, so dont
+		// panic in that case
+		out, err := kubectlDelete(file)
+		if err != nil && !strings.Contains(out, "NotFound") {
+			return err
+		}
+		os.Remove(file)
+	}
+
+	// Update the latest values first BEFORE trying to apply kubectl.
+	// If we crash in the midst of applying kubectl, we need to have
+	// the summary database reflect what we were attempting, a delete
+	// using the unapplied values in summary will just say NotFound and
+	// we handle that gracefully
+	summary.Tenant = ct.Tenant
+	summary.ApodRepl = ct.ApodRepl
+	summary.ApodSets = ct.ApodSets
+	summary.Image = ct.Image
+	if err := DBUpdateTenantSummary(ct.Tenant, summary); err != nil {
+		return err
+	}
+
+	for i := 1; i <= ct.ApodSets; i++ {
+		podname := getApodSetName(ct.Tenant, i)
+		file := generateApodDeploy(ct.Tenant, ct.Image, podname, ct.ApodRepl)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -260,34 +358,124 @@ func createAgentDeployments(ct *ClusterConfig) error {
 		if err != nil {
 			return err
 		}
-		// We maybe modifying existing apods, maybe reducing the number of
-		// replicas, in which case cleanup services for the extra ones. We will
-		// break out of the loop wit an error if we run beyond the number of
-		// replicas configured last time. This will get simplified once Liyakath
-		// introduces mongo changeset notifications and then we will exactly
-		// know how many replicas we had before
-		err = deleteApodService(ct.Tenant, podname, ct.ApodRepl, false)
+		err = createNxtForApod(ct.Tenant, podname, ct.ApodRepl)
 		if err != nil {
-			// do nothing, apply the new yaml for this pod
+			return err
 		}
-	}
-	// Now try to delete the extra deployments if any. If there are no
-	// extra deployments, there will be an error attempting to delete and
-	// we will automatically break out of the loop
-	var err error = nil
-	for i := ct.ApodSets + 1; err == nil; i++ {
-		podname := getApodSetName(ct.Tenant, i)
-		err = deleteApodService(ct.Tenant, podname, 0, true)
+		err = createApodNxtConnect(ct.Tenant, podname)
 		if err != nil {
-			// do nothing, delete this pod
-		}
-		file := "/tmp/" + ct.Tenant + "/deploy-" + podname + ".yaml"
-		err = kubectlDelete(file)
-		if err != nil {
-			break
+			return err
 		}
 	}
 
+	return nil
+}
+
+func generateDockerCred(ns string) (string, error) {
+	// Copy the docker keys to the new namespace
+	file := "/tmp/" + ns + "/regcred.yaml"
+	cmd := exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		glog.Error("Cannot read docker credentials", err.Error())
+		return "", err
+	}
+	regcred := string(out)
+	reNspc := regexp.MustCompile(`namespace: default`)
+	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+ns)
+
+	// Replace some junk lines to make it legit yaml
+	re := regexp.MustCompile("(?m)[[:space:]]+(creationTimestamp:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+	re = regexp.MustCompile("(?m)[[:space:]]+(time:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+	re = regexp.MustCompile("(?m)[[:space:]]+(uid:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+	re = regexp.MustCompile("(?m)[[:space:]]+(resourceVersion:).*$")
+	nspcRepl = re.ReplaceAllString(nspcRepl, "")
+
+	if yamlFile(file, nspcRepl) == "" {
+		return "", errors.New("yaml file")
+	}
+
+	return file, nil
+}
+
+func removeDir(directory string) {
+	dirRead, _ := os.Open(directory)
+	dirFiles, _ := dirRead.Readdir(0)
+	for index := range dirFiles {
+		fileHere := dirFiles[index]
+		nameHere := fileHere.Name()
+		fullPath := directory + "/" + nameHere
+		os.Remove(fullPath)
+	}
+}
+
+func deleteNamespace(ns string, t *tenantInfo) error {
+	var outs string
+	var err error
+	if len(t.tenantSummary.Connectors) != 0 || len(t.bundleInfo) != 0 {
+		return errors.New("Tenant still has bundles: " + ns)
+	}
+	for i := 1; i <= t.tenantSummary.ApodSets; i++ {
+		podname := getApodSetName(ns, i)
+		err = deleteApodService(ns, podname, 0, t.tenantSummary.ApodRepl, true)
+		if err != nil {
+			return err
+		}
+		file := generateApodDeploy(ns, t.tenantSummary.Image, podname, t.tenantSummary.ApodRepl)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
+		// clustermgr might have crashed while in here and come back up and now
+		// we might be trying to delete something thats already deleted, so dont
+		// panic in that case
+		outs, err = kubectlDelete(file)
+		if err != nil && !strings.Contains(outs, "NotFound") {
+			return err
+		}
+	}
+
+	file := generateTenantFlowControl(ns)
+	if file == "" {
+		return errors.New("yaml fail")
+	}
+	// clustermgr might have crashed while in here and come back up and now
+	// we might be trying to delete something thats already deleted, so dont
+	// panic in that case
+	outs, err = kubectlDelete(file)
+	if err != nil && !strings.Contains(outs, "NotFound") {
+		return err
+	}
+
+	file, err = generateDockerCred(ns)
+	if err != nil {
+		return err
+	}
+	// clustermgr might have crashed while in here and come back up and now
+	// we might be trying to delete something thats already deleted, so dont
+	// panic in that case
+	outs, err = kubectlDelete(file)
+	if err != nil && !strings.Contains(outs, "NotFound") {
+		return err
+	}
+
+	cmd := exec.Command("kubectl", "delete", "namespace", ns)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		outs := string(out)
+		if !strings.Contains(outs, "NotFound") {
+			glog.Error("Cannot delete namespace ", ns, ": ", outs)
+			return err
+		}
+	}
+	err = DBDeleteTenantSummary(ns)
+	if err != nil {
+		return err
+	}
+	removeDir("/tmp/" + ns)
+	delete(tenants, ns)
 	return nil
 }
 
@@ -317,30 +505,9 @@ func createNamespace(ns string) error {
 		return err
 	}
 
-	// Copy the docker keys to the new namespace
-	file = "/tmp/" + ns + "/regcred.yaml"
-	cmd = exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
-	out, err = cmd.CombinedOutput()
+	file, err = generateDockerCred(ns)
 	if err != nil {
-		glog.Error("Cannot read docker credentials", err.Error())
 		return err
-	}
-	regcred := string(out)
-	reNspc := regexp.MustCompile(`namespace: default`)
-	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+ns)
-
-	// Replace some junk lines to make it legit yaml
-	re := regexp.MustCompile("(?m)[[:space:]]+(creationTimestamp:).*$")
-	nspcRepl = re.ReplaceAllString(nspcRepl, "")
-	re = regexp.MustCompile("(?m)[[:space:]]+(time:).*$")
-	nspcRepl = re.ReplaceAllString(nspcRepl, "")
-	re = regexp.MustCompile("(?m)[[:space:]]+(uid:).*$")
-	nspcRepl = re.ReplaceAllString(nspcRepl, "")
-	re = regexp.MustCompile("(?m)[[:space:]]+(resourceVersion:).*$")
-	nspcRepl = re.ReplaceAllString(nspcRepl, "")
-
-	if yamlFile(file, nspcRepl) == "" {
-		return errors.New("yaml file")
 	}
 	err = kubectlApply(file)
 	if err != nil {
@@ -351,25 +518,24 @@ func createNamespace(ns string) error {
 }
 
 func createTenants(clcfg *ClusterConfig) {
-
-	_, ok1 := nspscVersion[clcfg.Tenant]
-	if !ok1 {
+	t := tenants[clcfg.Tenant]
+	if t == nil || !t.created {
+		if t == nil {
+			tenants[clcfg.Tenant] = makeTenantInfo(clcfg.Tenant)
+			t = tenants[clcfg.Tenant]
+		}
 		// Unknown tenant, so create tenant dir, then namespace.
 		_ = os.Mkdir("/tmp/"+clcfg.Tenant, 0666)
-		if createNamespace(clcfg.Tenant) == nil {
-			nspscVersion[clcfg.Tenant] = 1
+		if createNamespace(clcfg.Tenant) != nil {
+			return
 		}
+		t.created = true
 	}
-	v, ok2 := deployVersion[clcfg.Tenant]
-	if !ok2 || (v != clcfg.Version) {
+	t.markSweep = true
+
+	if t.deployVersion != clcfg.Version {
 		if createAgentDeployments(clcfg) == nil {
-			deployVersion[clcfg.Tenant] = clcfg.Version
-		}
-	}
-	v, ok2 = apodForConnectVersion[clcfg.Tenant]
-	if !ok2 || (v != clcfg.Version) {
-		if createApodForConnect(clcfg) == nil {
-			apodForConnectVersion[clcfg.Tenant] = clcfg.Version
+			t.deployVersion = clcfg.Version
 		}
 	}
 }
@@ -598,115 +764,238 @@ func createIngressGateway() {
 
 // Generate virtual service to handle user connections into a Cpod based
 // on x-nextensio-connect header whose value is currently the connector name
-func generateCpodNxtConnect(a ClusterBundle) string {
-	file := "/tmp/" + a.Tenant + "/nxtconnect-" + a.Connectid + ".yaml"
-	yaml := GetCpodConnectService(a.Tenant, getGwName(MyCluster), a.Connectid)
+func generateCpodNxtConnect(tenant string, connectid string) string {
+	file := "/tmp/" + tenant + "/nxtconnect-" + connectid + ".yaml"
+	yaml := GetCpodConnectService(tenant, getGwName(MyCluster), connectid)
 	return yamlFile(file, yaml)
 }
 
+func deleteCpodNxtConnect(tenant string, connectid string) (string, string, error) {
+	file := generateCpodNxtConnect(tenant, connectid)
+	if file == "" {
+		return "", "", errors.New("yaml fail")
+	}
+	out, err := kubectlDelete(file)
+	return file, out, err
+}
+
 func createCpodNxtConnect(a ClusterBundle) error {
-	file := generateCpodNxtConnect(a)
+	file := generateCpodNxtConnect(a.Tenant, a.Connectid)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
-	err := kubectlApply(file)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return kubectlApply(file)
 }
 
 // Generate virtual service to handle user connections into a Cpod based
 // on x-nextensio-for header whose value is currently the connector name
-func generateCpodNxtFor(a ClusterBundle) string {
-	file := "/tmp/" + a.Tenant + "/nxtfor-" + a.Connectid + ".yaml"
-	yaml := GetNxtForCpodService(a.Tenant, getGwName(MyCluster), a.Connectid)
+func generateCpodNxtFor(tenant string, connectid string) string {
+	file := "/tmp/" + tenant + "/nxtfor-" + connectid + ".yaml"
+	yaml := GetNxtForCpodService(tenant, getGwName(MyCluster), connectid)
 	return yamlFile(file, yaml)
 }
 
+func deleteCpodNxtFor(tenant string, connectid string) (string, string, error) {
+	file := generateCpodNxtFor(tenant, connectid)
+	if file == "" {
+		return "", "", errors.New("yaml fail")
+	}
+	out, err := kubectlDelete(file)
+	return file, out, err
+}
+
 func createCpodNxtFor(a ClusterBundle) error {
-	file := generateCpodNxtFor(a)
+	file := generateCpodNxtFor(a.Tenant, a.Connectid)
 	if file == "" {
 		return errors.New("yaml fail")
 	}
+	return kubectlApply(file)
+}
+
+func deleteCpodInService(tenant string, podname string) (string, string, error) {
+	file := generateCpodInService(tenant, podname)
+	if file == "" {
+		return "", "", errors.New("yaml fail")
+	} else {
+		out, err := kubectlDelete(file)
+		return file, out, err
+	}
+}
+
+func createCpodInService(tenant string, podname string) error {
+	file := generateCpodInService(tenant, podname)
+	if file == "" {
+		return errors.New("yaml fail")
+	} else {
+		return kubectlApply(file)
+	}
+}
+
+func deleteCpodOutService(tenant string, podname string) (string, string, error) {
+	file := generateCpodOutService(tenant, podname)
+	if file == "" {
+		return "", "", errors.New("yaml fail")
+	} else {
+		out, err := kubectlDelete(file)
+		return file, out, err
+	}
+}
+
+func createCpodOutService(tenant string, podname string) error {
+	file := generateCpodOutService(tenant, podname)
+	if file == "" {
+		return errors.New("yaml fail")
+	} else {
+		return kubectlApply(file)
+	}
+}
+
+func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
+	file := generateCpodDeploy(ct.Tenant, ct.Image, b.Connectid, b.CpodRepl)
+	if file == "" {
+		glog.Error("Cpod deploy file failed", ct.Tenant, b.Connectid)
+		return errors.New("Cannot create bundle file")
+	}
 	err := kubectlApply(file)
 	if err != nil {
+		glog.Error("Cpod deploy apply failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
+	err = createCpodOutService(ct.Tenant, b.Connectid)
+	if err != nil {
+		glog.Error("Cpod service failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
+	err = createCpodInService(ct.Tenant, b.Connectid)
+	if err != nil {
+		glog.Error("Cpod service failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
+	if err := createCpodNxtFor(b); err != nil {
+		glog.Error("Cpod for failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
+	if err := createCpodNxtConnect(b); err != nil {
+		glog.Error("Cpod connect failed", err, ct.Tenant, b.Connectid)
 		return err
 	}
 
 	return nil
 }
 
-func createCpodInService(tenant string, podname string) error {
-	var err error
-	var file string
-
-	file = generateCpodInService(tenant, podname)
-	if file == "" {
-		err = errors.New("yaml fail")
-	} else {
-		err1 := kubectlApply(file)
-		if err1 != nil {
-			err = err1
-		}
+// clustermgr might have crashed while in here and come back up and now
+// we might be trying to delete something thats already deleted, so dont
+// panic incase kubectl delete returns a "NotFound" error
+func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) error {
+	file, out, err := deleteCpodNxtFor(tenant, connectid)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		glog.Error("Cpod for failed", err, tenant, connectid)
+		return err
 	}
-	return err
-}
-
-func createCpodOutService(tenant string, podname string) error {
-	var err error
-	var file string
-
-	file = generateCpodOutService(tenant, podname)
-	if file == "" {
-		err = errors.New("yaml fail")
-	} else {
-		err1 := kubectlApply(file)
-		if err1 != nil {
-			err = err1
-		}
+	os.Remove(file)
+	file, out, err = deleteCpodNxtConnect(tenant, connectid)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		glog.Error("Cpod connect failed", err, tenant, connectid)
+		return err
 	}
-	return err
+	os.Remove(file)
+	file, out, err = deleteCpodOutService(tenant, connectid)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		glog.Error("Cpod service failed", err, tenant, connectid)
+		return err
+	}
+	os.Remove(file)
+	file, out, err = deleteCpodInService(tenant, connectid)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		glog.Error("Cpod service failed", err, tenant, connectid)
+		return err
+	}
+	os.Remove(file)
+	file = generateCpodDeploy(tenant, c.Image, connectid, c.Cpodrepl)
+	if file == "" {
+		glog.Error("Cpod deploy file failed", tenant, connectid)
+		return errors.New("Cannot create bundle file")
+	}
+	out, err = kubectlDelete(file)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		glog.Error("Cpod deploy apply failed", err, tenant, connectid)
+		return err
+	}
+	os.Remove(file)
+
+	return nil
 }
 
 func createConnectors(ct *ClusterConfig) {
+	t := tenants[ct.Tenant]
+	// Till we have mongo notifications working, do a mark and sweep
+	for _, c := range t.tenantSummary.Connectors {
+		binfo := t.bundleInfo[c.Connectid]
+		if binfo == nil {
+			binfo = &bundleInfo{}
+			binfo.version = -1
+			t.bundleInfo[c.Connectid] = binfo
+		}
+		t.bundleInfo[c.Connectid].markSweep = false
+	}
+
 	bundles := DBFindAllClusterBundlesForTenant(ct.Tenant)
-	for _, a := range bundles {
-		v, ok := bundleVersion[a.Uid]
-		if ok && v == a.Version {
-			continue
+	for _, b := range bundles {
+		binfo := t.bundleInfo[b.Connectid]
+		if binfo == nil {
+			binfo = &bundleInfo{}
+			binfo.version = -1
+			t.bundleInfo[b.Connectid] = binfo
 		}
-		file := generateCpodDeploy(ct, a.Connectid, a.CpodRepl)
-		if file == "" {
-			glog.Error("Cpod deploy file failed", ct.Tenant, a.Connectid)
-			continue
+		binfo.markSweep = true
+		if binfo.version != b.Version {
+			found := false
+			for _, c := range t.tenantSummary.Connectors {
+				if c.Connectid == b.Connectid {
+					found = true
+					c.Image = ct.Image
+					c.Cpodrepl = b.CpodRepl
+				}
+			}
+			if !found {
+				cinfo := ConnectorSummary{Image: ct.Image, Connectid: b.Connectid, Cpodrepl: b.CpodRepl}
+				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, cinfo)
+			}
+			// Update the latest values first BEFORE trying to apply kubectl.
+			// If we crash in the midst of applying kubectl, we need to have
+			// the summary database reflect what we were attempting, a delete
+			// using the unapplied values in summary will just say NotFound and
+			// we handle that gracefully
+			if DBUpdateTenantSummary(ct.Tenant, t.tenantSummary) == nil {
+				if createOneConnector(b, ct) == nil {
+					binfo.version = b.Version
+					glog.Error("Cpod success", ct.Tenant, b.Connectid)
+				}
+			}
 		}
-		err := kubectlApply(file)
-		if err != nil {
-			glog.Error("Cpod deploy apply failed", err, ct.Tenant, a.Connectid)
-			continue
+	}
+
+	// Till we have mongo notifications working, do a mark and sweep and delete bundles
+	// that are still marked as false
+	for i, c := range t.tenantSummary.Connectors {
+		if !t.bundleInfo[c.Connectid].markSweep {
+			// First delete from kubectl and THEN update the summary database that then
+			// entry has been deleted, so that if we crash in the midst of a delete, we
+			// will still continue attempting a delete when we come back up next time.
+			// Trying to delete non existant stuff will return a NotFound and we handle that
+			// gracefully
+			if deleteOneConnector(ct.Tenant, c.Connectid, &c) == nil {
+				l := len(t.tenantSummary.Connectors) - 1
+				t.tenantSummary.Connectors[i] = t.tenantSummary.Connectors[l]
+				t.tenantSummary.Connectors = t.tenantSummary.Connectors[0:l]
+				if DBUpdateTenantSummary(ct.Tenant, t.tenantSummary) == nil {
+					delete(t.bundleInfo, c.Connectid)
+				} else {
+					// put it back and try again next time
+					t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, c)
+				}
+			}
 		}
-		err = createCpodOutService(ct.Tenant, a.Connectid)
-		if err != nil {
-			glog.Error("Cpod service failed", err, ct.Tenant, a.Connectid)
-			continue
-		}
-		err = createCpodInService(ct.Tenant, a.Connectid)
-		if err != nil {
-			glog.Error("Cpod service failed", err, ct.Tenant, a.Connectid)
-			continue
-		}
-		if err := createCpodNxtFor(a); err != nil {
-			glog.Error("Cpod for failed", err, ct.Tenant, a.Connectid)
-			continue
-		}
-		if err := createCpodNxtConnect(a); err != nil {
-			glog.Error("Cpod connect failed", err, ct.Tenant, a.Connectid)
-			continue
-		}
-		bundleVersion[a.Uid] = a.Version
-		glog.Error("Cpod success", ct.Tenant, a.Connectid)
 	}
 }
 
@@ -739,10 +1028,7 @@ func main() {
 	//notifications, this is a temporary poor man's hack to periodically poll
 	//mongo and apply only the changed ones
 	gwVersion = make(map[string]int)
-	nspscVersion = make(map[string]int)
-	deployVersion = make(map[string]int)
-	apodForConnectVersion = make(map[string]int)
-	bundleVersion = make(map[string]int)
+	tenants = make(map[string]*tenantInfo)
 	clusterMesh = make(map[string]int)
 
 	// Create consul
@@ -754,9 +1040,24 @@ func main() {
 	}
 
 	for {
-		if DBConnect() == true {
+		if DBConnect() {
 			break
 		}
+		time.Sleep(1 * time.Second)
+	}
+
+	// Find the tenants that have been already configured
+	for {
+		summary, err := DBFindAllTenantSummary()
+		if err == nil {
+			for _, s := range summary {
+				_ = os.Mkdir("/tmp/"+s.Tenant, 0666)
+				tenants[s.Tenant] = makeTenantInfo(s.Tenant)
+				tenants[s.Tenant].tenantSummary = &s
+			}
+			break
+		}
+		glog.Error("Waiting to load configured tenants", err)
 		time.Sleep(1 * time.Second)
 	}
 
@@ -765,10 +1066,22 @@ func main() {
 		createIngressGateway()
 		createEgressGateways()
 
+		// Till we get the mongo notifications working, do a mark and sweep of tenants
+		// to see who has been deleted etc..
+		for _, t := range tenants {
+			t.markSweep = false
+			// createTenants below will set it to true for tenants that still exist
+		}
 		clTcfg := DBFindAllTenantsInCluster(MyCluster)
 		for _, Tcfg := range clTcfg {
 			createTenants(&Tcfg)
 			createConnectors(&Tcfg)
+		}
+		for k, t := range tenants {
+			// If its still marked as false, then there is no such tenant
+			if !t.markSweep {
+				deleteNamespace(k, t)
+			}
 		}
 		time.Sleep(1 * time.Second)
 	}
