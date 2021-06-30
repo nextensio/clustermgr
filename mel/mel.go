@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	common "gitlab.com/nextensio/common/go"
+
 	"github.com/golang/glog"
 )
 
@@ -105,7 +107,7 @@ func yamlFile(file string, yaml string) string {
 // Generate envoy flow control settings for istio ingress/egress gw
 func generateIstioFlowControl() string {
 	file := "/tmp/istio_flow_control.yaml"
-	yaml := GetFlowControl("istio-system")
+	yaml := GetFlowControlIstio()
 	return yamlFile(file, yaml)
 }
 
@@ -382,7 +384,7 @@ func generateDockerCred(ns string) (string, error) {
 	}
 	regcred := string(out)
 	reNspc := regexp.MustCompile(`namespace: default`)
-	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+ns)
+	nspcRepl := reNspc.ReplaceAllString(regcred, "namespace: "+common.TenantToNamespace(ns))
 
 	// Replace some junk lines to make it legit yaml
 	re := regexp.MustCompile("(?m)[[:space:]]+(creationTimestamp:).*$")
@@ -480,7 +482,7 @@ func deleteNamespace(ns string, t *tenantInfo) error {
 }
 
 func createNamespace(ns string) error {
-	cmd := exec.Command("kubectl", "create", "namespace", ns)
+	cmd := exec.Command("kubectl", "create", "namespace", common.TenantToNamespace(ns))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outs := string(out)
@@ -489,7 +491,7 @@ func createNamespace(ns string) error {
 			return err
 		}
 	}
-	cmd = exec.Command("kubectl", "label", "namespace", ns, "istio-injection=enabled", "--overwrite")
+	cmd = exec.Command("kubectl", "label", "namespace", common.TenantToNamespace(ns), "istio-injection=enabled", "--overwrite")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		glog.Error("Cannot enable istio injection for namespace ", ns, ": ", string(out))

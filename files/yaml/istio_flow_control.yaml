@@ -2,7 +2,7 @@ apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: nextensio-limit-buffering
-  namespace: nxt-REPLACE_NAMESPACE
+  namespace: istio-system
 spec:
   configPatches:
     - applyTo: CLUSTER

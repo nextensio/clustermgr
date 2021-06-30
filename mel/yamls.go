@@ -256,3 +256,13 @@ func GetFlowControl(namespace string) string {
 
 	return nspcRepl
 }
+
+func GetFlowControlIstio() string {
+	content, err := ioutil.ReadFile(MyYaml + "/istio_flow_control.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fc := string(content)
+
+	return fc
+}

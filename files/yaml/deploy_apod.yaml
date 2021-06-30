@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  namespace: REPLACE_NAMESPACE
+  namespace: nxt-REPLACE_NAMESPACE
   name: REPLACE_POD_NAME
   labels:
     app: REPLACE_POD_NAME

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: REPLACE_NAMESPACE
+  namespace: nxt-REPLACE_NAMESPACE
   name: REPLACE_POD_NAME-http-outside
 spec:
   selector:
@@ -13,7 +13,7 @@ spec:
 apiVersion: networking.istio.io/v1alpha3
 kind: DestinationRule
 metadata:
-  namespace: REPLACE_NAMESPACE
+  namespace: nxt-REPLACE_NAMESPACE
   name: REPLACE_POD_NAME-outside
 spec:
   host: REPLACE_POD_NAME-http-outside

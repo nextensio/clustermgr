@@ -1,7 +1,7 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: VirtualService
 metadata:
-  namespace: REPLACE_NAMESPACE
+  namespace: nxt-REPLACE_NAMESPACE
   name: app-vs-for-REPLACE_HOST_NAME
 spec:
   gateways:
