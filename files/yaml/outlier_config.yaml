@@ -1,7 +1,7 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
-  name: nextensio-limit-buffering
+  name: nextensio-outlier
   namespace: nxt-REPLACE_NAMESPACE
 spec:
   configPatches:
