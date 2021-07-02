@@ -118,6 +118,13 @@ func generateTenantFlowControl(t string) string {
 	return yamlFile(file, yaml)
 }
 
+// Generate envoy flow control settings per tenant
+func generateTenantOutlier(t string) string {
+	file := "/tmp/" + t + "/outlier_config.yaml"
+	yaml := GetOutlier(t)
+	return yamlFile(file, yaml)
+}
+
 // Generate virtual service to handle Cpod to Apod traffic based on x-nextensio-for
 // header whose value is a pod name
 func generateNxtForApod(t string, podname string, idx int) string {
@@ -853,12 +860,22 @@ func createCpodOutService(tenant string, podname string) error {
 }
 
 func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
-	file := generateCpodDeploy(ct.Tenant, ct.Image, b.Connectid, b.CpodRepl)
+	file := generateTenantOutlier(ct.Tenant)
+	if file == "" {
+		glog.Error("Tenant outlier file failed", ct.Tenant, b.Connectid)
+		return errors.New("Cannot create outlier file")
+	}
+	err := kubectlApply(file)
+	if err != nil {
+		glog.Error("Tenant outlier apply failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
+	file = generateCpodDeploy(ct.Tenant, ct.Image, b.Connectid, b.CpodRepl)
 	if file == "" {
 		glog.Error("Cpod deploy file failed", ct.Tenant, b.Connectid)
 		return errors.New("Cannot create bundle file")
 	}
-	err := kubectlApply(file)
+	err = kubectlApply(file)
 	if err != nil {
 		glog.Error("Cpod deploy apply failed", err, ct.Tenant, b.Connectid)
 		return err

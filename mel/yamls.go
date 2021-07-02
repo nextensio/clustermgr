@@ -266,3 +266,15 @@ func GetFlowControlIstio() string {
 
 	return fc
 }
+
+func GetOutlier(namespace string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/outlier_config.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fc := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(fc, namespace)
+
+	return nspcRepl
+}

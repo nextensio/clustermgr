@@ -17,3 +17,10 @@ metadata:
   name: REPLACE_POD_NAME-in
 spec:
   host: REPLACE_POD_NAME-in
+  trafficPolicy:
+    outlierDetection:
+      consecutiveGatewayErrors: 1
+      interval: 2s
+      baseEjectionTime: 10s
+      maxEjectionPercent: 100
+      minHealthPercent: 0

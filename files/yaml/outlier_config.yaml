@@ -1,0 +1,16 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: nextensio-limit-buffering
+  namespace: nxt-REPLACE_NAMESPACE
+spec:
+  configPatches:
+    - applyTo: CLUSTER
+      patch:
+        operation: MERGE
+        value:
+          # This is used by cpods to ensure only one outside connection and inside
+          # connection only when outside is connected, the envoy default is 5mins 
+          # which is too long, we cut it down here
+          outlier_detection:
+            max_ejection_time: 60s

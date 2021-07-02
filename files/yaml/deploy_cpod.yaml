@@ -33,6 +33,8 @@ spec:
                 fieldPath: spec.nodeName
           - name: MY_POD_NAME
             value: "REPLACE_POD_NAME"
+          - name: MY_POD_TYPE
+            value: "cpod"
           - name: MY_POD_NAMESPACE
             valueFrom:
               fieldRef:
