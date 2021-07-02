@@ -213,6 +213,13 @@ func generateCpodHealth(tenant string, podname string) string {
 	return yamlFile(file, yaml)
 }
 
+// Generate envoy flow control settings per tenant
+func generateCpodHeadless(tenant string, podname string) string {
+	file := "/tmp/" + tenant + "/headless-" + podname + ".yaml"
+	yaml := GetCpodHeadless(tenant, podname)
+	return yamlFile(file, yaml)
+}
+
 // Generate service for handling outside connections into an Apod
 func generateApodOutService(tenant string, podname string) string {
 	file := "/tmp/" + tenant + "/service-outside-" + podname + ".yaml"
@@ -898,6 +905,16 @@ func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
 		glog.Error("Pod health apply failed", err, ct.Tenant, b.Connectid)
 		return err
 	}
+	file = generateCpodHeadless(ct.Tenant, b.Connectid)
+	if file == "" {
+		glog.Error("Pod headless file failed", ct.Tenant, b.Connectid)
+		return errors.New("Cannot create health file")
+	}
+	err = kubectlApply(file)
+	if err != nil {
+		glog.Error("Pod headless apply failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
 
 	return nil
 }
@@ -938,6 +955,17 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) er
 	out, err = kubectlDelete(file)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Pod health delete failed", err, tenant, connectid)
+		return err
+	}
+	os.Remove(file)
+	file = generateCpodHeadless(tenant, connectid)
+	if file == "" {
+		glog.Error("Pod headless file failed", tenant, connectid)
+		return errors.New("Cannot create health file")
+	}
+	out, err = kubectlDelete(file)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		glog.Error("Pod headless delete failed", err, tenant, connectid)
 		return err
 	}
 	os.Remove(file)

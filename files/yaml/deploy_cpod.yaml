@@ -10,7 +10,7 @@ spec:
   selector:
     matchLabels:
       app: REPLACE_POD_NAME
-  serviceName: "minion"
+  serviceName: REPLACE_POD_NAME
   template:
     metadata:
       annotations:
@@ -30,6 +30,7 @@ spec:
         ports:
         - containerPort: 80
         - containerPort: 443
+        - containerPort: 8080
         env:
           - name: MY_NODE_NAME
             valueFrom:
