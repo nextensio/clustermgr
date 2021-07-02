@@ -118,13 +118,6 @@ func generateTenantFlowControl(t string) string {
 	return yamlFile(file, yaml)
 }
 
-// Generate envoy flow control settings per tenant
-func generateTenantOutlier(t string) string {
-	file := "/tmp/" + t + "/outlier_config.yaml"
-	yaml := GetOutlier(t)
-	return yamlFile(file, yaml)
-}
-
 // Generate virtual service to handle Cpod to Apod traffic based on x-nextensio-for
 // header whose value is a pod name
 func generateNxtForApod(t string, podname string, idx int) string {
@@ -210,6 +203,13 @@ func generateApodDeploy(tenant string, image string, podname string, replicas in
 func generateCpodDeploy(tenant string, image string, podname string, replicas int) string {
 	file := "/tmp/" + tenant + "/deploy-" + podname + ".yaml"
 	yaml := GetCpodDeploy(tenant, image, MyMongo, podname, MyCluster, replicas)
+	return yamlFile(file, yaml)
+}
+
+// Generate envoy flow control settings per tenant
+func generateCpodHealth(tenant string, podname string) string {
+	file := "/tmp/" + tenant + "/health-" + podname + ".yaml"
+	yaml := GetCpodHealth(tenant, podname)
 	return yamlFile(file, yaml)
 }
 
@@ -860,22 +860,12 @@ func createCpodOutService(tenant string, podname string) error {
 }
 
 func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
-	file := generateTenantOutlier(ct.Tenant)
-	if file == "" {
-		glog.Error("Tenant outlier file failed", ct.Tenant, b.Connectid)
-		return errors.New("Cannot create outlier file")
-	}
-	err := kubectlApply(file)
-	if err != nil {
-		glog.Error("Tenant outlier apply failed", err, ct.Tenant, b.Connectid)
-		return err
-	}
-	file = generateCpodDeploy(ct.Tenant, ct.Image, b.Connectid, b.CpodRepl)
+	file := generateCpodDeploy(ct.Tenant, ct.Image, b.Connectid, b.CpodRepl)
 	if file == "" {
 		glog.Error("Cpod deploy file failed", ct.Tenant, b.Connectid)
 		return errors.New("Cannot create bundle file")
 	}
-	err = kubectlApply(file)
+	err := kubectlApply(file)
 	if err != nil {
 		glog.Error("Cpod deploy apply failed", err, ct.Tenant, b.Connectid)
 		return err
@@ -896,6 +886,16 @@ func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
 	}
 	if err := createCpodNxtConnect(b); err != nil {
 		glog.Error("Cpod connect failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
+	file = generateCpodHealth(ct.Tenant, b.Connectid)
+	if file == "" {
+		glog.Error("Pod health file failed", ct.Tenant, b.Connectid)
+		return errors.New("Cannot create health file")
+	}
+	err = kubectlApply(file)
+	if err != nil {
+		glog.Error("Pod health apply failed", err, ct.Tenant, b.Connectid)
 		return err
 	}
 
@@ -927,6 +927,17 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) er
 	file, out, err = deleteCpodInService(tenant, connectid)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Cpod service failed", err, tenant, connectid)
+		return err
+	}
+	os.Remove(file)
+	file = generateCpodHealth(tenant, connectid)
+	if file == "" {
+		glog.Error("Pod health file failed", tenant, connectid)
+		return errors.New("Cannot create health file")
+	}
+	out, err = kubectlDelete(file)
+	if err != nil && !strings.Contains(out, "NotFound") {
+		glog.Error("Pod health delete failed", err, tenant, connectid)
 		return err
 	}
 	os.Remove(file)

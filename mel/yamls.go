@@ -267,14 +267,16 @@ func GetFlowControlIstio() string {
 	return fc
 }
 
-func GetOutlier(namespace string) string {
-	content, err := ioutil.ReadFile(MyYaml + "/outlier_config.yaml")
+func GetCpodHealth(namespace string, podname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/cpod_health.yaml")
 	if err != nil {
 		log.Fatal(err)
 	}
 	fc := string(content)
 	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
 	nspcRepl := reNspc.ReplaceAllString(fc, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
 
-	return nspcRepl
+	return podRepl
 }

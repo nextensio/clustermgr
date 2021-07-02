@@ -1,0 +1,45 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: health-REPLACE_POD_NAME
+  namespace: nxt-REPLACE_NAMESPACE
+spec:
+  workloadSelector:
+    labels:
+      app: REPLACE_POD_NAME
+  configPatches:
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_INBOUND
+        cluster:
+          portNumber: 443
+      patch:
+        operation: MERGE
+        value:
+          # This is used by cpods to ensure only one outside connection and inside
+          # connection only when outside is connected, the envoy default is 5mins 
+          # which is too long, we cut it down here
+          outlier_detection:
+            max_ejection_time: 60s
+    - applyTo: CLUSTER
+      match:
+        context: SIDECAR_INBOUND
+        cluster:
+          portNumber: 80
+      patch:
+        operation: MERGE
+        value:
+          common_lb_config:
+            ignore_new_hosts_until_first_hc: true
+          # This ensures that the port 80 is taken out of loadbalance pool
+          # if it fails health check (which is if the cpod has no connectors)
+          health_checks:
+          - timeout: 1s
+            interval: 1s
+            no_traffic_interval: 1s
+            unhealthy_threshold: 1
+            healthy_threshold: 3
+            initial_jitter: 1s
+            tcp_health_check: {}
+            always_log_health_check_failures: true
+            event_log_path: /dev/stdout

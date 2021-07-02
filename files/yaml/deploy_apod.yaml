@@ -15,6 +15,7 @@ spec:
     metadata:
       annotations:
         sidecar.istio.io/statsInclusionPrefixes: listener,cluster.outbound,cluster_manager,listener_manager,http_mixer_filter,tcp_mixer_filter,server,cluster.xds-grpc
+        sidecar.istio.io/statsInclusionSuffixes: upstream_cx_total
       labels:
         app: REPLACE_POD_NAME
         role: minion
