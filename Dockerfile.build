@@ -13,6 +13,8 @@ RUN /go/gitlab.sh
 WORKDIR /go/src/nextensio/mel
 COPY mel .
 
+RUN go env -w GOPRIVATE="gitlab.com"
+RUN go env -w GO111MODULE="on"
 RUN go get -d -v ./... \
     && go install -v ./... \
     && \rm -r -f /go/src/nextensio/* \
