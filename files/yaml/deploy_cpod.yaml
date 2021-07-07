@@ -19,6 +19,9 @@ spec:
         # so that envoy health checking works properly, or so is claimed by the below link
         # https://github.com/istio/istio/issues/10537
         sidecar.istio.io/statsInclusionSuffixes: upstream_cx_total
+
+        # add nxt custom stats dimension
+        sidecar.istio.io/extraStatTags: nxt_session,nxt_for,nxt_srcAgent,nxt_srcPod,nxt_srcCluster,nxt_destCluster,nxt_uuid
       labels:
         app: REPLACE_POD_NAME
         role: minion
