@@ -20,6 +20,14 @@ spec:
       patch:
         operation: MERGE
         value:
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options:
+                  max_concurrent_streams: 100000
+                  initial_stream_window_size: 65536
+                  initial_connection_window_size: 65536
           http2_protocol_options:
             initial_stream_window_size: 65536  
             initial_connection_window_size: 65536 
@@ -48,6 +56,11 @@ spec:
           # v2 seems to work fine
           typed_config:
             "@type": "type.googleapis.com/envoy.config.filter.network.http_connection_manager.v2.HttpConnectionManager"
+            http2_protocol_options:
+              max_concurrent_streams: 100000
+              initial_stream_window_size: 65536
+              initial_connection_window_size: 65536
+            "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
             http2_protocol_options:
               max_concurrent_streams: 100000
               initial_stream_window_size: 65536

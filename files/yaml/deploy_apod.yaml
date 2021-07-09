@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       annotations:
-        sidecar.istio.io/statsInclusionPrefixes: listener,cluster.outbound,cluster_manager,listener_manager,http_mixer_filter,tcp_mixer_filter,server,cluster.xds-grpc
+        sidecar.istio.io/statsInclusionPrefixes: listener,cluster.outbound,cluster.inbound,cluster.http2,cluster_manager,listener_manager,http_mixer_filter,tcp_mixer_filter,server,cluster.xds-grpc
         sidecar.istio.io/statsInclusionSuffixes: upstream_cx_total
         # add nxt custom stats dimension
         sidecar.istio.io/extraStatTags: nxt_session,nxt_for,nxt_srcAgent,nxt_srcPod,nxt_srcCluster,nxt_destCluster,nxt_uuid

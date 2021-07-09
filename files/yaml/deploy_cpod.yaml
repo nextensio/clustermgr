@@ -14,7 +14,7 @@ spec:
   template:
     metadata:
       annotations:
-        sidecar.istio.io/statsInclusionPrefixes: listener,cluster.outbound,cluster_manager,listener_manager,http_mixer_filter,tcp_mixer_filter,server,cluster.xds-grpc
+        sidecar.istio.io/statsInclusionPrefixes: listener,cluster.outbound,cluster.inbound,cluster.http2,cluster_manager,listener_manager,http_mixer_filter,tcp_mixer_filter,server,cluster.xds-grpc
         # All the above stats are just for debugging, but the below stats is enabled
         # so that envoy health checking works properly, or so is claimed by the below link
         # https://github.com/istio/istio/issues/10537
