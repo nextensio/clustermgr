@@ -58,6 +58,24 @@ func GetNxtForApodService(namespace string, gateway string, podname string, host
 	return gwRepl
 }
 
+func GetNxtForCpodServiceReplica(namespace string, gateway string, podname string, hostname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/nextensio_for_cpod_replica.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	vservice := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(vservice, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+	reHost := regexp.MustCompile(`REPLACE_HOST_NAME`)
+	hostRepl := reHost.ReplaceAllString(podRepl, hostname)
+	reGw := regexp.MustCompile(`REPLACE_GW`)
+	gwRepl := reGw.ReplaceAllString(hostRepl, gateway)
+
+	return gwRepl
+}
+
 func GetNxtForCpodService(namespace string, gateway string, podname string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/nextensio_for_cpod.yaml")
 	if err != nil {
@@ -116,6 +134,22 @@ func GetCpodOutService(namespace string, podname string) string {
 	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
 
 	return podRepl
+}
+
+func GetCpodInServiceReplica(namespace string, podname string, hostname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/service_cpod_in_replica.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	service := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(service, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+	reHost := regexp.MustCompile(`REPLACE_HOST_NAME`)
+	hostRepl := reHost.ReplaceAllString(podRepl, hostname)
+
+	return hostRepl
 }
 
 func GetCpodInService(namespace string, podname string) string {

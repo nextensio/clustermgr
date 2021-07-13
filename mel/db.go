@@ -62,7 +62,7 @@ func DBConnect() bool {
 type ConnectorSummary struct {
 	Image     string `bson:"image"`
 	Connectid string `bson:"connectid"`
-	Cpodrepl  int    `bson:"cpodrepl"`
+	CpodRepl  int    `bson:"cpodrepl"`
 }
 
 type TenantSummary struct {

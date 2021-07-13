@@ -803,6 +803,51 @@ func createCpodNxtConnect(a ClusterBundle) error {
 	return kubectlApply(file)
 }
 
+// Generate virtual service to handle Cpod to Apod traffic based on x-nextensio-for
+// header whose value is a pod name
+func generateNxtForCpodReplica(t string, podname string, idx int) string {
+	hostname := podname + fmt.Sprintf("-%d", idx)
+	file := "/tmp/" + t + "/nxtfor-" + hostname + ".yaml"
+	yaml := GetNxtForCpodServiceReplica(t, getGwName(MyCluster), podname, hostname)
+	return yamlFile(file, yaml)
+}
+
+func createNxtForCpodReplica(t string, podname string, replicas int) error {
+	var err error
+	var file string
+	for i := 0; i < replicas; i++ {
+		// Repeat for each replica
+		file = generateNxtForCpodReplica(t, podname, i)
+		if file == "" {
+			err = errors.New("yaml fail")
+		} else {
+			err1 := kubectlApply(file)
+			if err1 != nil {
+				err = err1
+			}
+		}
+	}
+	return err
+}
+
+func deleteNxtForCpodReplica(t string, podname string, replicaStart int, replicaEnd int) error {
+	var file string
+	for i := replicaStart; i < replicaEnd; i++ {
+		// Repeat for each replica
+		file = generateNxtForCpodReplica(t, podname, i)
+		if file == "" {
+			return errors.New("yaml fail")
+		} else {
+			out, err := kubectlDelete(file)
+			if err != nil && !strings.Contains(out, "NotFound") {
+				return err
+			}
+			os.Remove(file)
+		}
+	}
+	return nil
+}
+
 // Generate virtual service to handle user connections into a Cpod based
 // on x-nextensio-for header whose value is currently the connector name
 func generateCpodNxtFor(tenant string, connectid string) string {
@@ -826,6 +871,51 @@ func createCpodNxtFor(a ClusterBundle) error {
 		return errors.New("yaml fail")
 	}
 	return kubectlApply(file)
+}
+
+// Generate service for inter-cluster traffic coming into an Apod
+func generateCpodInServiceReplica(tenant string, podname string, idx int) string {
+	hostname := podname + fmt.Sprintf("-%d", idx)
+	file := "/tmp/" + tenant + "/service-inside-" + hostname + ".yaml"
+	yaml := GetCpodInServiceReplica(tenant, podname, hostname)
+	return yamlFile(file, yaml)
+}
+
+func createCpodServiceReplica(tenant string, podname string, replicas int) error {
+	for i := 0; i < replicas; i++ {
+		// Repeat for each replica
+		file := generateCpodInServiceReplica(tenant, podname, i)
+		if file == "" {
+			err := errors.New("yaml fail")
+			if err != nil {
+				return err
+			}
+		} else {
+			err := kubectlApply(file)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func deleteCpodServiceReplica(tenant string, podname string, replicaStart int, replicaEnd int) error {
+	for i := replicaStart; i < replicaEnd; i++ {
+		// Repeat for each replica
+		hostname := podname + fmt.Sprintf("-%d", i)
+		file := "/tmp/" + tenant + "/service-inside-" + hostname + ".yaml"
+		out, err := kubectlDelete(file)
+		// clustermgr might have crashed while in here and come back up and now
+		// we might be trying to delete something thats already deleted, so dont
+		// panic in that case
+		if err != nil && !strings.Contains(out, "NotFound") {
+			glog.Error("Inside service del failed", i)
+			return err
+		}
+		os.Remove(file)
+	}
+	return nil
 }
 
 func deleteCpodInService(tenant string, podname string) (string, string, error) {
@@ -887,8 +977,17 @@ func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
 		glog.Error("Cpod service failed", err, ct.Tenant, b.Connectid)
 		return err
 	}
+	err = createCpodServiceReplica(ct.Tenant, b.Connectid, b.CpodRepl)
+	if err != nil {
+		glog.Error("Cpod service replica failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
 	if err := createCpodNxtFor(b); err != nil {
 		glog.Error("Cpod for failed", err, ct.Tenant, b.Connectid)
+		return err
+	}
+	if err := createNxtForCpodReplica(ct.Tenant, b.Connectid, b.CpodRepl); err != nil {
+		glog.Error("Cpod for replica failed", err, ct.Tenant, b.Connectid)
 		return err
 	}
 	if err := createCpodNxtConnect(b); err != nil {
@@ -929,6 +1028,11 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) er
 		return err
 	}
 	os.Remove(file)
+	err = deleteNxtForCpodReplica(tenant, connectid, 0, c.CpodRepl)
+	if err != nil {
+		glog.Error("Cpod nxtfor delete replicas failed", err, tenant, connectid, c.CpodRepl)
+		return err
+	}
 	file, out, err = deleteCpodNxtConnect(tenant, connectid)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Cpod connect failed", err, tenant, connectid)
@@ -947,6 +1051,11 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) er
 		return err
 	}
 	os.Remove(file)
+	err = deleteCpodServiceReplica(tenant, connectid, 0, c.CpodRepl)
+	if err != nil {
+		glog.Error("Cpod service delete replicas failed", err, tenant, connectid, c.CpodRepl)
+		return err
+	}
 	file = generateCpodHealth(tenant, connectid)
 	if file == "" {
 		glog.Error("Pod health file failed", tenant, connectid)
@@ -969,7 +1078,7 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) er
 		return err
 	}
 	os.Remove(file)
-	file = generateCpodDeploy(tenant, c.Image, connectid, c.Cpodrepl)
+	file = generateCpodDeploy(tenant, c.Image, connectid, c.CpodRepl)
 	if file == "" {
 		glog.Error("Cpod deploy file failed", tenant, connectid)
 		return errors.New("Cannot create bundle file")
@@ -1007,27 +1116,42 @@ func createConnectors(ct *ClusterConfig) {
 		}
 		binfo.markSweep = true
 		if binfo.version != b.Version {
-			found := false
+			var summary *ConnectorSummary
 			for _, c := range t.tenantSummary.Connectors {
 				if c.Connectid == b.Connectid {
-					found = true
-					c.Image = ct.Image
-					c.Cpodrepl = b.CpodRepl
+					summary = &c
+					break
 				}
 			}
-			if !found {
-				cinfo := ConnectorSummary{Image: ct.Image, Connectid: b.Connectid, Cpodrepl: b.CpodRepl}
-				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, cinfo)
+			if summary == nil {
+				summary = &ConnectorSummary{Image: ct.Image, Connectid: b.Connectid, CpodRepl: b.CpodRepl}
+				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, *summary)
 			}
-			// Update the latest values first BEFORE trying to apply kubectl.
-			// If we crash in the midst of applying kubectl, we need to have
-			// the summary database reflect what we were attempting, a delete
-			// using the unapplied values in summary will just say NotFound and
-			// we handle that gracefully
-			if DBUpdateTenantSummary(ct.Tenant, t.tenantSummary) == nil {
-				if createOneConnector(b, ct) == nil {
-					binfo.version = b.Version
-					glog.Error("Cpod success", ct.Tenant, b.Connectid)
+			// First remove resources thats not needed anymore. If the number of cpod
+			// replicas hae reduced, we have to cleanup nxt-for and service rules etc..
+			err := deleteNxtForCpodReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
+			if err != nil {
+				glog.Error("Cpod nxtfor delete replicas failed", ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
+			}
+			if err == nil {
+				err = deleteCpodServiceReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
+				if err != nil {
+					glog.Error("Cpod service delete replicas failed", ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
+				}
+			}
+			if err == nil {
+				summary.Image = ct.Image
+				summary.CpodRepl = b.CpodRepl
+				// Update the latest values first BEFORE trying to apply kubectl.
+				// If we crash in the midst of applying kubectl, we need to have
+				// the summary database reflect what we were attempting, a delete
+				// using the unapplied values in summary will just say NotFound and
+				// we handle that gracefully
+				if DBUpdateTenantSummary(ct.Tenant, t.tenantSummary) == nil {
+					if createOneConnector(b, ct) == nil {
+						binfo.version = b.Version
+						glog.Error("Cpod success", ct.Tenant, b.Connectid)
+					}
 				}
 			}
 		}
