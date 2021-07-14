@@ -482,7 +482,7 @@ func deleteNamespace(ns string, t *tenantInfo) error {
 		return err
 	}
 
-	cmd := exec.Command("kubectl", "delete", "namespace", ns)
+	cmd := exec.Command("kubectl", "delete", "namespace", common.TenantToNamespace(ns))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outs := string(out)
