@@ -69,7 +69,7 @@ func kubectlApply(file string) error {
 	out, err := cmd.CombinedOutput()
 	glog.Error("kubectl apply ", file, " result: ", string(out))
 	if err != nil {
-		glog.Error("kubectl apply ", file, " failed: ", string(out))
+		glog.Error("kubectl apply ", file, " failed: ", string(out), " error: ", err)
 		return err
 	}
 
@@ -81,7 +81,7 @@ func kubectlDelete(file string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	glog.Error("kubectl delete ", file, " result: ", string(out))
 	if err != nil {
-		glog.Error("kubectl delete ", file, " failed: ", string(out))
+		glog.Error("kubectl delete ", file, " failed: ", string(out), " error: ", err)
 		return string(out), err
 	}
 
@@ -275,7 +275,10 @@ func createApodService(tenant string, podname string, replicas int) error {
 
 func deleteApodService(tenant string, podname string, replicaStart int, replicaEnd int, outside bool) error {
 	if outside {
-		file := "/tmp/" + tenant + "/service-outside-" + podname + ".yaml"
+		file := generateCpodOutService(tenant, podname)
+		if file == "" {
+			return errors.New("yaml file")
+		}
 		out, err := kubectlDelete(file)
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
@@ -288,14 +291,16 @@ func deleteApodService(tenant string, podname string, replicaStart int, replicaE
 
 	for i := replicaStart; i < replicaEnd; i++ {
 		// Repeat for each replica
-		hostname := podname + fmt.Sprintf("-%d", i)
-		file := "/tmp/" + tenant + "/service-inside-" + hostname + ".yaml"
+		file := generateApodInService(tenant, podname, i)
+		if file == "" {
+			return errors.New("yaml file")
+		}
 		out, err := kubectlDelete(file)
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
 		// panic in that case
 		if err != nil && !strings.Contains(out, "NotFound") {
-			glog.Error("Inside service del failed", i)
+			glog.Error("Inside service del failed,", i)
 			return err
 		}
 		os.Remove(file)
@@ -886,10 +891,7 @@ func createCpodServiceReplica(tenant string, podname string, replicas int) error
 		// Repeat for each replica
 		file := generateCpodInServiceReplica(tenant, podname, i)
 		if file == "" {
-			err := errors.New("yaml fail")
-			if err != nil {
-				return err
-			}
+			return errors.New("yaml fail")
 		} else {
 			err := kubectlApply(file)
 			if err != nil {
@@ -903,14 +905,16 @@ func createCpodServiceReplica(tenant string, podname string, replicas int) error
 func deleteCpodServiceReplica(tenant string, podname string, replicaStart int, replicaEnd int) error {
 	for i := replicaStart; i < replicaEnd; i++ {
 		// Repeat for each replica
-		hostname := podname + fmt.Sprintf("-%d", i)
-		file := "/tmp/" + tenant + "/service-inside-" + hostname + ".yaml"
+		file := generateCpodInServiceReplica(tenant, podname, i)
+		if file == "" {
+			return errors.New("yaml fail")
+		}
 		out, err := kubectlDelete(file)
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
 		// panic in that case
 		if err != nil && !strings.Contains(out, "NotFound") {
-			glog.Error("Inside service del failed", i)
+			glog.Error("Inside service del failed,", i)
 			return err
 		}
 		os.Remove(file)
