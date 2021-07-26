@@ -14,7 +14,6 @@ import (
 var dbClient *mongo.Client
 
 // Collections for global operational info - clusters/gateways and tenants
-var globalclusterDB *mongo.Database
 var clusterGwCltn *mongo.Collection
 var clusterCfgCltn *mongo.Collection
 
@@ -24,7 +23,7 @@ var bundleCltn *mongo.Collection
 var summaryCltn *mongo.Collection
 
 func ClusterGetDBName(cl string) string {
-	return ("Nxt-" + cl + "-DB")
+	return ("Cluster-" + cl + "-DB")
 }
 
 func DBConnect() bool {
@@ -45,13 +44,12 @@ func DBConnect() bool {
 		glog.Errorf("Database ping error - %s", err)
 		return false
 	}
-	globalclusterDB = dbClient.Database("NxtClusterDB")
-	clusterGwCltn = globalclusterDB.Collection("NxtGateways")
 
 	clusterDB = dbClient.Database(ClusterGetDBName(MyCluster))
 	bundleCltn = clusterDB.Collection("NxtConnectors")
 	summaryCltn = clusterDB.Collection("NxtTenantSummary")
 	clusterCfgCltn = clusterDB.Collection("NxtTenants")
+	clusterGwCltn = clusterDB.Collection("NxtGateways")
 
 	return true
 }
