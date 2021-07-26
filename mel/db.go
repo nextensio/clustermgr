@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 
 	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
@@ -15,12 +16,10 @@ var dbClient *mongo.Client
 // Collections for global operational info - clusters/gateways and tenants
 var globalclusterDB *mongo.Database
 var clusterGwCltn *mongo.Collection
-var namespaceCltn *mongo.Collection
 var clusterCfgCltn *mongo.Collection
 
 // Collections specific to this cluster for tracking users and services
 var clusterDB *mongo.Database
-var usersCltn *mongo.Collection
 var bundleCltn *mongo.Collection
 var summaryCltn *mongo.Collection
 
@@ -48,10 +47,8 @@ func DBConnect() bool {
 	}
 	globalclusterDB = dbClient.Database("NxtClusterDB")
 	clusterGwCltn = globalclusterDB.Collection("NxtGateways")
-	namespaceCltn = globalclusterDB.Collection("NxtNamespaces")
 
 	clusterDB = dbClient.Database(ClusterGetDBName(MyCluster))
-	usersCltn = clusterDB.Collection("NxtUsers")
 	bundleCltn = clusterDB.Collection("NxtConnectors")
 	summaryCltn = clusterDB.Collection("NxtTenantSummary")
 	clusterCfgCltn = clusterDB.Collection("NxtTenants")
@@ -73,35 +70,61 @@ type TenantSummary struct {
 	Connectors []ConnectorSummary `bson:"connectors"`
 }
 
-func DBFindAllTenantSummary() ([]TenantSummary, error) {
+func DBFindAllTenantSummary() (error, []TenantSummary) {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error"), nil
+		}
+	}
+
 	var summary []TenantSummary
 
 	cursor, err := summaryCltn.Find(context.TODO(), bson.M{})
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
 	if err != nil {
-		return summary, err
+		return err, nil
 	}
 	err = cursor.All(context.TODO(), &summary)
 	if err != nil {
-		return summary, err
+		return err, nil
 	}
 
-	return summary, nil
+	return nil, summary
 }
 
-func DBFindTenantSummary(tenant string) *TenantSummary {
+func DBFindTenantSummary(tenant string) (error, *TenantSummary) {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error"), nil
+		}
+	}
+
 	var summary TenantSummary
 
 	err := summaryCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": tenant},
 	).Decode(&summary)
-	if err != nil {
-		return nil
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
 	}
-	return &summary
+	if err != nil {
+		return err, nil
+	}
+	return nil, &summary
 }
 
 func DBUpdateTenantSummary(tenant string, summary *TenantSummary) error {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error")
+		}
+	}
 
 	// The upsert option asks the DB to add if one is not found
 	upsert := true
@@ -127,6 +150,13 @@ func DBUpdateTenantSummary(tenant string, summary *TenantSummary) error {
 }
 
 func DBDeleteTenantSummary(tenant string) error {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error")
+		}
+	}
+
 	_, err := summaryCltn.DeleteOne(
 		context.TODO(),
 		bson.M{"_id": tenant},
@@ -148,6 +178,13 @@ type ClusterGateway struct {
 
 // Find gateway/cluster doc given the gateway name
 func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error"), nil
+		}
+	}
+
 	var gateway ClusterGateway
 	err := clusterGwCltn.FindOne(
 		context.TODO(),
@@ -162,41 +199,6 @@ func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 	return nil, &gateway
 }
 
-// NOTE: The bson decoder will not work if the structure field names dont start with upper case
-type Namespace struct {
-	ID       string `json:"_id" bson:"_id"`
-	Name     string `json:"name" bson:"name"`
-	Database string `json:"database" bson:"database"`
-	Version  int    `json:"version" bson:"version"`
-}
-
-func DBFindNamespace(id string) *Namespace {
-	var namespace Namespace
-	err := namespaceCltn.FindOne(
-		context.TODO(),
-		bson.M{"_id": id},
-	).Decode(&namespace)
-	if err != nil {
-		return nil
-	}
-	return &namespace
-}
-
-func DBFindAllNamespaces() []Namespace {
-	var namespaces []Namespace
-
-	cursor, err := namespaceCltn.Find(context.TODO(), bson.M{})
-	if err != nil {
-		return nil
-	}
-	err = cursor.All(context.TODO(), &namespaces)
-	if err != nil {
-		return nil
-	}
-
-	return namespaces
-}
-
 type ClusterConfig struct {
 	Id       string `json:"id" bson:"_id"` // ClusterID:TenantID
 	Cluster  string `json:"cluster" bson:"cluster"`
@@ -208,37 +210,30 @@ type ClusterConfig struct {
 }
 
 // Find all tenants present in a cluster
-func DBFindAllTenantsInCluster(clid string) []ClusterConfig {
-	var clcfg []ClusterConfig
-	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"cluster": clid})
-	if err != nil {
-		return nil
+func DBFindAllTenantsInCluster() (error, []ClusterConfig) {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error"), nil
+		}
 	}
-	err = cursor.All(context.TODO(), &clcfg)
-	if err != nil {
-		return nil
-	}
-	if len(clcfg) > 0 {
-		return clcfg
-	}
-	return nil
-}
 
-// Find all clusters for specified tenant
-func DBFindAllClustersForTenant(tenant string) []ClusterConfig {
 	var clcfg []ClusterConfig
-	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	cursor, err := clusterCfgCltn.Find(context.TODO(), bson.M{})
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return err, nil
 	}
 	err = cursor.All(context.TODO(), &clcfg)
 	if err != nil {
-		return nil
+		return err, nil
 	}
 	if len(clcfg) > 0 {
-		return clcfg
+		return nil, clcfg
 	}
-	return nil
+	return nil, nil
 }
 
 // The Pod here indicates the "pod set" that this user should
@@ -254,30 +249,50 @@ type ClusterBundle struct {
 }
 
 // Find a specific tenant's connector within a cluster
-func DBFindClusterBundle(tenant string, bundleid string) *ClusterBundle {
+func DBFindClusterBundle(tenant string, bundleid string) (error, *ClusterBundle) {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error"), nil
+		}
+	}
+
 	bid := tenant + ":" + bundleid
 	var bundle ClusterBundle
 	err := bundleCltn.FindOne(
 		context.TODO(),
 		bson.M{"_id": bid},
 	).Decode(&bundle)
-	if err != nil {
-		return nil
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
 	}
-	return &bundle
+	if err != nil {
+		return err, nil
+	}
+	return nil, &bundle
 }
 
-func DBFindAllClusterBundlesForTenant(tenant string) []ClusterBundle {
+func DBFindAllClusterBundlesForTenant(tenant string) (error, []ClusterBundle) {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			return errors.New("Mongo unit test error"), nil
+		}
+	}
+
 	var bundles []ClusterBundle
 
 	cursor, err := bundleCltn.Find(context.TODO(), bson.M{"tenant": tenant})
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return err, nil
 	}
 	err = cursor.All(context.TODO(), &bundles)
 	if err != nil {
-		return nil
+		return err, nil
 	}
 
-	return bundles
+	return nil, bundles
 }

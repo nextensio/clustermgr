@@ -16,6 +16,8 @@ import (
 	"github.com/golang/glog"
 )
 
+var dbConnected bool
+var unitTesting bool
 var MyCluster string
 var MyYaml string
 var ConsulWanIP string
@@ -66,6 +68,13 @@ func getGwName(cluster string) string {
 }
 
 func kubectlApply(file string) error {
+	if unitTesting {
+		kubeErr := GetEnv("TEST_KUBE_ERR", "NOT_TEST")
+		if kubeErr == "true" {
+			return errors.New("Kubernetes unit test error")
+		}
+		return nil
+	}
 	cmd := exec.Command("kubectl", "apply", "-f", file)
 	out, err := cmd.CombinedOutput()
 	glog.Error("kubectl apply ", file, " result: ", string(out))
@@ -78,6 +87,13 @@ func kubectlApply(file string) error {
 }
 
 func kubectlDelete(file string) (string, error) {
+	if unitTesting {
+		kubeErr := GetEnv("TEST_KUBE_ERR", "NOT_TEST")
+		if kubeErr == "true" {
+			return "", errors.New("Kubernetes unit test error")
+		}
+		return "", nil
+	}
 	cmd := exec.Command("kubectl", "delete", "-f", file)
 	out, err := cmd.CombinedOutput()
 	glog.Error("kubectl delete ", file, " result: ", string(out))
@@ -709,6 +725,9 @@ func createEgressGateways() error {
 	if err != nil {
 		return err
 	}
+	if cl == nil {
+		return errors.New("Cant find my cluster")
+	}
 	if eGwVersion == cl.Version {
 		return nil
 	}
@@ -1051,7 +1070,7 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) er
 	return nil
 }
 
-func createConnectors(ct *ClusterConfig) {
+func createConnectors(ct *ClusterConfig) error {
 	t := tenants[ct.Tenant]
 	// Till we have mongo notifications working, do a mark and sweep
 	for _, c := range t.tenantSummary.Connectors {
@@ -1064,7 +1083,10 @@ func createConnectors(ct *ClusterConfig) {
 		t.bundleInfo[c.Connectid].markSweep = false
 	}
 
-	bundles := DBFindAllClusterBundlesForTenant(ct.Tenant)
+	err, bundles := DBFindAllClusterBundlesForTenant(ct.Tenant)
+	if err != nil {
+		return err
+	}
 	for _, b := range bundles {
 		binfo := t.bundleInfo[b.Connectid]
 		if binfo == nil {
@@ -1090,28 +1112,30 @@ func createConnectors(ct *ClusterConfig) {
 			err := deleteNxtForCpodReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
 			if err != nil {
 				glog.Error("Cpod nxtfor delete replicas failed", ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
+				return err
 			}
-			if err == nil {
-				err = deleteCpodServiceReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
-				if err != nil {
-					glog.Error("Cpod service delete replicas failed", ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
-				}
+			err = deleteCpodServiceReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
+			if err != nil {
+				glog.Error("Cpod service delete replicas failed", ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
+				return err
 			}
-			if err == nil {
-				summary.Image = ct.Image
-				summary.CpodRepl = b.CpodRepl
-				// Update the latest values first BEFORE trying to apply kubectl.
-				// If we crash in the midst of applying kubectl, we need to have
-				// the summary database reflect what we were attempting, a delete
-				// using the unapplied values in summary will just say NotFound and
-				// we handle that gracefully
-				if DBUpdateTenantSummary(ct.Tenant, t.tenantSummary) == nil {
-					if createOneConnector(b, ct) == nil {
-						binfo.version = b.Version
-						glog.Error("Cpod success", ct.Tenant, b.Connectid)
-					}
-				}
+			summary.Image = ct.Image
+			summary.CpodRepl = b.CpodRepl
+			// Update the latest values first BEFORE trying to apply kubectl.
+			// If we crash in the midst of applying kubectl, we need to have
+			// the summary database reflect what we were attempting, a delete
+			// using the unapplied values in summary will just say NotFound and
+			// we handle that gracefully
+			err = DBUpdateTenantSummary(ct.Tenant, t.tenantSummary)
+			if err != nil {
+				return err
 			}
+			err = createOneConnector(b, ct)
+			if err != nil {
+				return err
+			}
+			binfo.version = b.Version
+			glog.Error("Cpod success", ct.Tenant, b.Connectid)
 		}
 	}
 
@@ -1124,24 +1148,29 @@ func createConnectors(ct *ClusterConfig) {
 			// will still continue attempting a delete when we come back up next time.
 			// Trying to delete non existant stuff will return a NotFound and we handle that
 			// gracefully
-			if deleteOneConnector(ct.Tenant, c.Connectid, &c) == nil {
-				l := len(t.tenantSummary.Connectors) - 1
-				t.tenantSummary.Connectors[i] = t.tenantSummary.Connectors[l]
-				t.tenantSummary.Connectors = t.tenantSummary.Connectors[0:l]
-				if DBUpdateTenantSummary(ct.Tenant, t.tenantSummary) == nil {
-					delete(t.bundleInfo, c.Connectid)
-				} else {
-					// put it back and try again next time
-					t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, c)
-				}
+			err = deleteOneConnector(ct.Tenant, c.Connectid, &c)
+			if err != nil {
+				return err
 			}
+			l := len(t.tenantSummary.Connectors) - 1
+			t.tenantSummary.Connectors[i] = t.tenantSummary.Connectors[l]
+			t.tenantSummary.Connectors = t.tenantSummary.Connectors[0:l]
+			err = DBUpdateTenantSummary(ct.Tenant, t.tenantSummary)
+			if err != nil {
+				// put it back and try again next time
+				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, c)
+				return err
+			}
+			delete(t.bundleInfo, c.Connectid)
 		}
 	}
+
+	return nil
 }
 
 //--------------------------------------Main---------------------------------------
 
-func main() {
+func melMain() {
 	flag.Parse()
 	MyCluster = GetEnv("MY_POD_CLUSTER", "UNKNOWN_CLUSTER")
 	if MyCluster == "UNKNOWN_CLUSTER" {
@@ -1163,6 +1192,10 @@ func main() {
 	if MyMongo == "UNKNOWN_MONGO" {
 		glog.Fatal("Unknown Mongo URI")
 	}
+	TestEnviron := GetEnv("TEST_ENVIRONMENT", "NOT_TEST")
+	if TestEnviron == "true" {
+		unitTesting = true
+	}
 
 	//TODO: These versions will go away once we move to mongodb changeset
 	//notifications, this is a temporary poor man's hack to periodically poll
@@ -1182,6 +1215,7 @@ func main() {
 
 	for {
 		if DBConnect() {
+			dbConnected = true
 			break
 		}
 		time.Sleep(1 * time.Second)
@@ -1189,7 +1223,7 @@ func main() {
 
 	// Find the tenants that have been already configured
 	for {
-		summary, err := DBFindAllTenantSummary()
+		err, summary := DBFindAllTenantSummary()
 		if err == nil {
 			for _, s := range summary {
 				_ = os.Mkdir("/tmp/"+s.Tenant, 0666)
@@ -1213,7 +1247,7 @@ func main() {
 			t.markSweep = false
 			// createTenants below will set it to true for tenants that still exist
 		}
-		clTcfg := DBFindAllTenantsInCluster(MyCluster)
+		_, clTcfg := DBFindAllTenantsInCluster()
 		for _, Tcfg := range clTcfg {
 			createTenants(&Tcfg)
 			createConnectors(&Tcfg)
@@ -1226,4 +1260,8 @@ func main() {
 		}
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func main() {
+	melMain()
 }
