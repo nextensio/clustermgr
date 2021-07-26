@@ -35,7 +35,8 @@ type tenantInfo struct {
 }
 
 var tenants map[string]*tenantInfo
-var gwVersion map[string]int
+var inGwVersion bool
+var eGwVersion int
 var clusterMesh map[string]int
 
 func makeTenantInfo(tenant string) *tenantInfo {
@@ -699,86 +700,39 @@ func createIngressGw() error {
 	return nil
 }
 
-// Find out all other clusters (gateways) this cluster needs to connect to.
-// First get all tenants in this cluster.
-// For each such tenant, get tenant's presence in all other clusters.
-// Get merged set of all those clusters and return a filtered set of
-// newly discovered clusters.
-func generateClusterMesh() map[string]int {
-	var clusterm = make(map[string]int)
-	var clusterdel = make(map[string]int)
-
-	clTcfg := DBFindAllTenantsInCluster(MyCluster)
-	for _, clTdoc := range clTcfg {
-		// For every tenant in this cluster, get all other clusters
-		// where the tenant has presence so we can enable connectivity
-		// to those clusters.
-		clGcfg := DBFindAllClustersForTenant(clTdoc.Tenant)
-		for _, clGdoc := range clGcfg {
-			if clGdoc.Cluster == MyCluster {
-				continue
-			}
-			_, ok := clusterMesh[clGdoc.Cluster]
-			// Keep track of known and unknown/new clusters
-			if !ok {
-				clusterm[clGdoc.Cluster] = 1 // New
-			} else {
-				clusterm[clGdoc.Cluster] = 2 // Known
-			}
-		}
-	}
-	// Now figure out if any previously known clusters have gone away
-	// from our mesh so we can do any needed cleanup.
-	for cl, _ := range clusterMesh {
-		_, ok := clusterm[cl]
-		if !ok {
-			// cluster no longer used by any tenant in this cluster
-			clusterdel[cl] = 1
-		}
-	}
-	if len(clusterdel) > 0 {
-		// Clean up yamls and remove egress-gateway config for
-		// gateways this cluster does not need to connect to any more.
-		// TODO: figure out how to do this.
-		for cl, _ := range clusterdel {
-			delete(clusterMesh, cl)
-			delete(gwVersion, cl)
-		}
-	}
-
-	// Add any newly discovered clusters to clusterMesh and leave just the
-	// new clusters in clusterm for further processing.
-	for cl, val := range clusterm {
-		if val == 1 { // New cluster
-			clusterMesh[cl] = 1 // value is immaterial
-		} else {
-			delete(clusterm, cl)
-		}
-	}
-	return clusterm
-}
-
 // Enable connections to other clusters via egress-gateways, etc.
-func createEgressGateways() {
-	newclusters := generateClusterMesh()
-	for cl, _ := range newclusters {
-		_, ok := gwVersion[cl]
-		if !ok {
-			if createEgressGws(getGwName(cl)) == nil {
-				gwVersion[cl] = 1
-			}
+// TODO: Deletion of remote gateways also needs to be handled, the
+// added information needs to go into summary database to help with
+// deletion
+func createEgressGateways() error {
+	err, cl := DBFindGatewayCluster(getGwName(MyCluster))
+	if err != nil {
+		return err
+	}
+	if eGwVersion == cl.Version {
+		return nil
+	}
+	for _, r := range cl.Remotes {
+		e := createEgressGws(getGwName(r))
+		if e != nil {
+			return e
 		}
 	}
+	eGwVersion = cl.Version
+
+	return nil
 }
 
 // Create ingress-gateway for our own cluster
-func createIngressGateway() {
-	_, ok := gwVersion[MyCluster]
-	if !ok {
-		if createIngressGw() == nil {
-			gwVersion[MyCluster] = 1
+func createIngressGateway() error {
+	if !inGwVersion {
+		e := createIngressGw()
+		if e != nil {
+			return e
 		}
+		inGwVersion = true
 	}
+	return nil
 }
 
 //-----------------------------Connector connections into Nextensio------------------------
@@ -1213,7 +1167,8 @@ func main() {
 	//TODO: These versions will go away once we move to mongodb changeset
 	//notifications, this is a temporary poor man's hack to periodically poll
 	//mongo and apply only the changed ones
-	gwVersion = make(map[string]int)
+	inGwVersion = false
+	eGwVersion = 0
 	tenants = make(map[string]*tenantInfo)
 	clusterMesh = make(map[string]int)
 

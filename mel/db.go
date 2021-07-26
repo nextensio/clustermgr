@@ -14,7 +14,7 @@ var dbClient *mongo.Client
 
 // Collections for global operational info - clusters/gateways and tenants
 var globalclusterDB *mongo.Database
-var nxtGwCltn *mongo.Collection
+var clusterGwCltn *mongo.Collection
 var namespaceCltn *mongo.Collection
 var clusterCfgCltn *mongo.Collection
 
@@ -47,14 +47,14 @@ func DBConnect() bool {
 		return false
 	}
 	globalclusterDB = dbClient.Database("NxtClusterDB")
-	nxtGwCltn = globalclusterDB.Collection("NxtGateways")
+	clusterGwCltn = globalclusterDB.Collection("NxtGateways")
 	namespaceCltn = globalclusterDB.Collection("NxtNamespaces")
-	clusterCfgCltn = globalclusterDB.Collection("NxtClusters")
 
 	clusterDB = dbClient.Database(ClusterGetDBName(MyCluster))
 	usersCltn = clusterDB.Collection("NxtUsers")
 	bundleCltn = clusterDB.Collection("NxtConnectors")
 	summaryCltn = clusterDB.Collection("NxtTenantSummary")
+	clusterCfgCltn = clusterDB.Collection("NxtTenants")
 
 	return true
 }
@@ -139,25 +139,27 @@ func DBDeleteTenantSummary(tenant string) error {
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
-type NxtGateway struct {
-	Name    string `json:"name" bson:"name"`
-	Cluster string `json:"cluster" bson:"cluster"`
-	Version int    `json:"version" bson:"version"`
+type ClusterGateway struct {
+	Name    string   `json:"name" bson:"_id"`
+	Cluster string   `json:"cluster" bson:"cluster"`
+	Version int      `json:"version" bson:"version"`
+	Remotes []string `json:"remotes" bson:"remotes"`
 }
 
-func DBFindAllGateways() []NxtGateway {
-	var gateways []NxtGateway
-
-	cursor, err := nxtGwCltn.Find(context.TODO(), bson.M{})
-	if err != nil {
-		return nil
+// Find gateway/cluster doc given the gateway name
+func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
+	var gateway ClusterGateway
+	err := clusterGwCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": gwname},
+	).Decode(&gateway)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
 	}
-	err = cursor.All(context.TODO(), &gateways)
 	if err != nil {
-		return nil
+		return err, nil
 	}
-
-	return gateways
+	return nil, &gateway
 }
 
 // NOTE: The bson decoder will not work if the structure field names dont start with upper case
