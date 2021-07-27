@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: nxt-nextensio
+  name: nextensio-foobar-nextensio-com-http-outside
+spec:
+  selector:
+    app: nextensio-foobar-nextensio-com
+  ports:
+  - port: 443
+    name: http-out
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  namespace: nxt-nextensio
+  name: nextensio-foobar-nextensio-com-outside
+spec:
+  host: nextensio-foobar-nextensio-com-http-outside
+  trafficPolicy:
+    outlierDetection:
+      consecutiveGatewayErrors: 1
+      interval: 2s
+      baseEjectionTime: 10s
+      maxEjectionPercent: 100
+      minHealthPercent: 0

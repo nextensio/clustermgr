@@ -1,0 +1,20 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  namespace: nxt-nextensio
+  name: connector-vs-for-nextensio-kismis-nextensio-com
+spec:
+  gateways:
+  - default/nextensio-ingressgateway
+  hosts:
+  - "*"
+  http:
+  - match:
+    - headers:
+        x-nextensio-for:
+          prefix: nextensio-kismis-nextensio-com
+    route:
+    - destination:
+        host: nextensio-kismis-nextensio-com-in
+        port:
+          number: 80

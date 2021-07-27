@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: nxt-nextensio
+  name: nextensio-foobar-nextensio-com
+  labels:
+    app: nextensio-foobar-nextensio-com
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nextensio-foobar-nextensio-com
+  serviceName: nextensio-foobar-nextensio-com
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/statsInclusionPrefixes: listener,cluster.outbound,cluster.inbound,cluster.http2,cluster_manager,listener_manager,http_mixer_filter,tcp_mixer_filter,server,cluster.xds-grpc
+        # All the above stats are just for debugging, but the below stats is enabled
+        # so that envoy health checking works properly, or so is claimed by the below link
+        # https://github.com/istio/istio/issues/10537
+        sidecar.istio.io/statsInclusionSuffixes: upstream_cx_total
+        # add nxt custom stats dimension
+        sidecar.istio.io/extraStatTags: nxt_session,nxt_for,nxt_srcAgent,nxt_srcPod,nxt_srcCluster,nxt_destCluster,nxt_uuid
+      labels:
+        app: nextensio-foobar-nextensio-com
+        role: minion
+    spec:
+      containers:
+      - name: minion
+        image: minion:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        - containerPort: 8080
+        env:
+          - name: MY_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: MY_POD_NAME
+            value: "nextensio-foobar-nextensio-com"
+          - name: MY_POD_TYPE
+            value: "cpod"
+          - name: MY_POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: MY_POD_CLUSTER
+            value: "gatewaytesta"
+          - name: MY_MONGO_URI
+            value: "mongodb://localhost:27017"
+      - name: jaeger-agent
+        image: jaegertracing/jaeger-agent:1.24.0  # The agent version should match the operator version
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 5775
+            name: zk-compact-trft
+            protocol: UDP
+          - containerPort: 5778
+            name: config-rest
+            protocol: TCP
+          - containerPort: 6831
+            name: jg-compact-trft
+            protocol: UDP
+          - containerPort: 6832
+            name: jg-binary-trft
+            protocol: UDP
+          - containerPort: 14271
+            name: admin-http
+            protocol: TCP
+        args:
+          - --reporter.grpc.host-port=dns:///simplest-collector-headless.nxt-nextensio.svc.cluster.local:14250
+          - --reporter.type=grpc
+      imagePullSecrets:
+      - name: regcred
