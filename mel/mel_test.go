@@ -76,8 +76,24 @@ func fileDiff(file1, file2 string) bool {
 }
 
 // Find gateway/cluster doc given the gateway name
-func DBAddGatewayCluster(gw ClusterGateway) error {
-	e, find := DBFindGatewayCluster(gw.Name)
+func UTFindGatewayCluster(gwname string) (error, *ClusterGateway) {
+	var gateway ClusterGateway
+	err := clusterGwCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": gwname},
+	).Decode(&gateway)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	return nil, &gateway
+}
+
+// Find gateway/cluster doc given the gateway name
+func UTAddGatewayCluster(gw ClusterGateway) error {
+	e, find := UTFindGatewayCluster(gw.Name)
 	if e != nil {
 		return e
 	}
@@ -109,10 +125,10 @@ func DBAddGatewayCluster(gw ClusterGateway) error {
 
 // This API will add a new doc or update one for pods allocated to a tenant
 // within a specific cluster
-func DBAddClusterConfig(data *ClusterConfig) error {
+func UTAddClusterConfig(data *ClusterConfig) error {
 	version := 1
 	Cluster := data.Cluster
-	err, clc := DBFindClusterConfig(data.Tenant)
+	err, clc := UTFindClusterConfig(data.Tenant)
 	if err != nil {
 		return err
 	}
@@ -147,7 +163,7 @@ func DBAddClusterConfig(data *ClusterConfig) error {
 }
 
 // Find the ClusterConfig doc for a tenant within a cluster
-func DBFindClusterConfig(tenant string) (error, *ClusterConfig) {
+func UTFindClusterConfig(tenant string) (error, *ClusterConfig) {
 	var clcfg ClusterConfig
 	err := clusterCfgCltn.FindOne(context.TODO(), bson.M{"_id": tenant}).Decode(&clcfg)
 	if err == mongo.ErrNoDocuments {
@@ -160,8 +176,8 @@ func DBFindClusterConfig(tenant string) (error, *ClusterConfig) {
 }
 
 // Delete the ClusterConfig doc for a tenant within a cluster.
-func DBDelClusterConfig(tenant string) error {
-	err, clcfg := DBFindClusterConfig(tenant)
+func UTDelClusterConfig(tenant string) error {
+	err, clcfg := UTFindClusterConfig(tenant)
 	if err != nil {
 		return err
 	}
@@ -174,10 +190,27 @@ func DBDelClusterConfig(tenant string) error {
 	return err
 }
 
-func DBAddOneClusterBundle(tenant string, data *ClusterBundle) error {
+// Find a specific tenant's connector within a cluster
+func UTFindClusterBundle(tenant string, bundleid string) (error, *ClusterBundle) {
+	bid := tenant + ":" + bundleid
+	var bundle ClusterBundle
+	err := bundleCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": bid},
+	).Decode(&bundle)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	return nil, &bundle
+}
+
+func UTAddOneClusterBundle(tenant string, data *ClusterBundle) error {
 	splits := strings.Split(data.Uid, ":")
 	version := 1
-	_, bundle := DBFindClusterBundle(tenant, splits[1])
+	_, bundle := UTFindClusterBundle(tenant, splits[1])
 	if bundle != nil {
 		version = bundle.Version + 1
 	}
@@ -205,7 +238,7 @@ func DBAddOneClusterBundle(tenant string, data *ClusterBundle) error {
 	return nil
 }
 
-func DBDelOneClusterBundle(tenant string, bid string) error {
+func UTDelOneClusterBundle(tenant string, bid string) error {
 	id := tenant + ":" + bid
 	_, err := bundleCltn.DeleteOne(
 		context.TODO(),
@@ -222,7 +255,7 @@ func addGateways() {
 		Version: 1,
 		Remotes: []string{"gatewaytestc"},
 	}
-	DBAddGatewayCluster(gw)
+	UTAddGatewayCluster(gw)
 
 	gw = ClusterGateway{
 		Name:    "gatewaytestc.nextensio.net",
@@ -230,7 +263,7 @@ func addGateways() {
 		Version: 1,
 		Remotes: []string{"gatewaytesta"},
 	}
-	DBAddGatewayCluster(gw)
+	UTAddGatewayCluster(gw)
 }
 
 func yamlsPresent() bool {
@@ -282,7 +315,7 @@ func addTenant(name string, apodrepl int, apodsets int) {
 		ApodSets: apodsets,
 		Version:  0,
 	}
-	DBAddClusterConfig(&cfg)
+	UTAddClusterConfig(&cfg)
 }
 
 func tenantYamlsPresent(tenant string) bool {
@@ -323,10 +356,26 @@ func connMatch(sumConns, conns []ConnectorSummary) bool {
 	return true
 }
 
+func UTFindTenantSummary(tenant string) (error, *TenantSummary) {
+	var summary TenantSummary
+
+	err := summaryCltn.FindOne(
+		context.TODO(),
+		bson.M{"_id": tenant},
+	).Decode(&summary)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	return nil, &summary
+}
+
 // Verify the "in memory" tenant summary (white box testing) AND also verify
 // the "in databse" tenant summary (black box testing)
 func tenantSummaryMatch(t *testing.T, tenant string, apodrepl int, apodsets int, connectors []ConnectorSummary) bool {
-	_, dbSum := DBFindTenantSummary(tenant)
+	_, dbSum := UTFindTenantSummary(tenant)
 	memSum := tenants[tenant].tenantSummary
 
 	if dbSum.Image != MinionImage || memSum.Image != MinionImage {
@@ -410,6 +459,25 @@ func cleanupFiles() {
 	cmd.Run()
 }
 
+func insertError(kube bool, mongo bool) {
+	if kube {
+		os.Setenv("TEST_KUBE_ERR", "true")
+	}
+	if mongo {
+		os.Setenv("TEST_MONGO_ERR", "true")
+	}
+}
+
+func removeError(kube bool, mongo bool, wait time.Duration) {
+	if kube {
+		os.Setenv("TEST_KUBE_ERR", "false")
+	}
+	if mongo {
+		os.Setenv("TEST_MONGO_ERR", "false")
+	}
+	time.Sleep(wait * time.Second)
+}
+
 // Basic test:
 // 1. Add a tenant with 1 apod replica, test increase and decrease replicas
 // 2. Add one bundle with 1 cpod replica, test increase and decrease replicas
@@ -420,7 +488,7 @@ func cleanupFiles() {
 // TODO Liyakath - the sleeps here probably can be shortened a lot
 // with the mongo changeset notifications because they will be much
 // faster I think
-func TestBasic(t *testing.T) {
+func testBasic(t *testing.T, kubeErr bool, mongoErr bool) {
 	dropDB()
 	// Remove files left over from previous iteration if any
 	cleanupFiles()
@@ -434,8 +502,10 @@ func TestBasic(t *testing.T) {
 			break
 		}
 	}
+	insertError(kubeErr, mongoErr)
 	addGateways()
 	time.Sleep(2 * time.Second)
+	removeError(kubeErr, mongoErr, 2)
 	if !yamlsPresent() {
 		t.Error()
 		return
@@ -445,8 +515,10 @@ func TestBasic(t *testing.T) {
 		return
 	}
 	// Step 1
+	insertError(kubeErr, mongoErr)
 	addTenant("nextensio", 1, 1)
 	time.Sleep(2 * time.Second)
+	removeError(kubeErr, mongoErr, 2)
 	if !tenantYamlsPresent("nextensio") {
 		t.Error()
 		return
@@ -460,24 +532,30 @@ func TestBasic(t *testing.T) {
 		return
 	}
 	// Step 2 increase apod sets and replicas
+	insertError(kubeErr, mongoErr)
 	addTenant("nextensio", 2, 2)
 	time.Sleep(2 * time.Second)
+	removeError(kubeErr, mongoErr, 2)
 	if !tenantYamlsMatch(t, "apod2_2", "nextensio", 14) {
 		t.Error()
 		return
 	}
 	// Go back to Step 1
+	insertError(kubeErr, mongoErr)
 	addTenant("nextensio", 1, 1)
 	time.Sleep(2 * time.Second)
+	removeError(kubeErr, mongoErr, 2)
 	if !tenantYamlsMatch(t, "apod1_1", "nextensio", 5) {
 		t.Error()
 		return
 	}
 
 	// Step1: Add one bundle
+	insertError(kubeErr, mongoErr)
 	conn1 := CreateBundle("nextensio", "foobar@nextensio.com", 1)
-	DBAddOneClusterBundle("nextensio", &conn1)
+	UTAddOneClusterBundle("nextensio", &conn1)
 	time.Sleep(5 * time.Second)
+	removeError(kubeErr, mongoErr, 5)
 	if !bundleYamlsMatch(t, "foobar1", "nextensio", "foobar", 9) {
 		t.Error()
 		return
@@ -491,9 +569,11 @@ func TestBasic(t *testing.T) {
 		return
 	}
 	// Step2: Increase Cpod replicas
+	insertError(kubeErr, mongoErr)
 	conn1 = CreateBundle("nextensio", "foobar@nextensio.com", 2)
-	DBAddOneClusterBundle("nextensio", &conn1)
+	UTAddOneClusterBundle("nextensio", &conn1)
 	time.Sleep(5 * time.Second)
+	removeError(kubeErr, mongoErr, 5)
 	if !bundleYamlsMatch(t, "foobar2", "nextensio", "foobar", 11) {
 		t.Error()
 		return
@@ -506,9 +586,11 @@ func TestBasic(t *testing.T) {
 		return
 	}
 	// Go back to Step 1
+	insertError(kubeErr, mongoErr)
 	conn1 = CreateBundle("nextensio", "foobar@nextensio.com", 1)
-	DBAddOneClusterBundle("nextensio", &conn1)
+	UTAddOneClusterBundle("nextensio", &conn1)
 	time.Sleep(5 * time.Second)
+	removeError(kubeErr, mongoErr, 5)
 	if !bundleYamlsMatch(t, "foobar1", "nextensio", "foobar", 9) {
 		t.Error()
 		return
@@ -524,7 +606,7 @@ func TestBasic(t *testing.T) {
 
 	// Add a second bundle
 	conn2 := CreateBundle("nextensio", "kismis@nextensio.com", 2)
-	DBAddOneClusterBundle("nextensio", &conn2)
+	UTAddOneClusterBundle("nextensio", &conn2)
 	time.Sleep(5 * time.Second)
 	if !bundleYamlsMatch(t, "kismis1", "nextensio", "kismis", 11) {
 		t.Error()
@@ -541,28 +623,46 @@ func TestBasic(t *testing.T) {
 	}
 
 	// Delete foobar bundle
-	DBDelOneClusterBundle("nextensio", "foobar@nextensio.com")
+	insertError(kubeErr, mongoErr)
+	UTDelOneClusterBundle("nextensio", "foobar@nextensio.com")
 	time.Sleep(2 * time.Second)
+	removeError(kubeErr, mongoErr, 2)
 	if !bundleYamlsRemoved("nextensio", "foobar") {
 		t.Error()
 		return
 	}
 
 	// Delete kismis bundle
-	DBDelOneClusterBundle("nextensio", "kismis@nextensio.com")
+	insertError(kubeErr, mongoErr)
+	UTDelOneClusterBundle("nextensio", "kismis@nextensio.com")
 	time.Sleep(2 * time.Second)
+	removeError(kubeErr, mongoErr, 2)
 	if !bundleYamlsRemoved("nextensio", "kismis") {
 		t.Error()
 		return
 	}
 
 	// Delete the tenant
-	DBDelClusterConfig("nextensio")
+	insertError(kubeErr, mongoErr)
+	UTDelClusterConfig("nextensio")
 	time.Sleep(10 * time.Second)
+	removeError(kubeErr, mongoErr, 10)
 	if !tenantYamlsRemoved("nextensio") {
 		t.Error()
 		return
 	}
 
 	cleanupFiles()
+}
+
+func TestBasicWithNoErrors(t *testing.T) {
+	testBasic(t, false, false)
+}
+
+func TestBasicWithKubeErrors(t *testing.T) {
+	testBasic(t, true, false)
+}
+
+func TestBasicWithMongoErrors(t *testing.T) {
+	testBasic(t, false, true)
 }

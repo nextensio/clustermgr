@@ -72,6 +72,7 @@ func DBFindAllTenantSummary() (error, []TenantSummary) {
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error"), nil
 		}
 	}
@@ -97,6 +98,7 @@ func DBFindTenantSummary(tenant string) (error, *TenantSummary) {
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error"), nil
 		}
 	}
@@ -120,6 +122,7 @@ func DBUpdateTenantSummary(tenant string, summary *TenantSummary) error {
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error")
 		}
 	}
@@ -151,6 +154,7 @@ func DBDeleteTenantSummary(tenant string) error {
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error")
 		}
 	}
@@ -179,6 +183,7 @@ func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error"), nil
 		}
 	}
@@ -212,6 +217,7 @@ func DBFindAllTenantsInCluster() (error, []ClusterConfig) {
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error"), nil
 		}
 	}
@@ -251,6 +257,7 @@ func DBFindClusterBundle(tenant string, bundleid string) (error, *ClusterBundle)
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error"), nil
 		}
 	}
@@ -274,6 +281,7 @@ func DBFindAllClusterBundlesForTenant(tenant string) (error, []ClusterBundle) {
 	if unitTesting {
 		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
 		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
 			return errors.New("Mongo unit test error"), nil
 		}
 	}

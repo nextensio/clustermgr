@@ -71,6 +71,7 @@ func kubectlApply(file string) error {
 	if unitTesting {
 		kubeErr := GetEnv("TEST_KUBE_ERR", "NOT_TEST")
 		if kubeErr == "true" {
+			glog.Error("KubeApply UT error")
 			return errors.New("Kubernetes unit test error")
 		}
 		return nil
@@ -90,6 +91,7 @@ func kubectlDelete(file string) (string, error) {
 	if unitTesting {
 		kubeErr := GetEnv("TEST_KUBE_ERR", "NOT_TEST")
 		if kubeErr == "true" {
+			glog.Error("KubeDelete UT error")
 			return "", errors.New("Kubernetes unit test error")
 		}
 		return "", nil
@@ -1247,9 +1249,20 @@ func melMain() {
 
 	//TODO: This for loop will go away once we register with mongo for change notifications
 	for {
-		createIngressGateway()
-		createEgressGateways()
-
+		for {
+			err := createIngressGateway()
+			if err == nil {
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
+		for {
+			err := createEgressGateways()
+			if err == nil {
+				break
+			}
+			time.Sleep(1 * time.Second)
+		}
 		// Till we get the mongo notifications working, do a mark and sweep of tenants
 		// to see who has been deleted etc..
 		for _, t := range tenants {
