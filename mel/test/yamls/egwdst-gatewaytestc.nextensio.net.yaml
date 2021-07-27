@@ -1,0 +1,17 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: originate-tls-for-gatewaytestc-nextensio-net
+spec:
+  exportTo:
+  - "*"
+  host: gatewaytestc.nextensio.net
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN
+    portLevelSettings:
+    - port:
+        number: 80
+      tls:
+        mode: SIMPLE
+

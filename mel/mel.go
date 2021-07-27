@@ -410,6 +410,10 @@ func createAgentDeployments(ct *ClusterConfig) error {
 }
 
 func generateDockerCred(ns string) (string, error) {
+	if unitTesting {
+		return "/tmp/" + ns + "/regcred.yaml", nil
+	}
+
 	// Copy the docker keys to the new namespace
 	file := "/tmp/" + ns + "/regcred.yaml"
 	cmd := exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
@@ -563,7 +567,7 @@ func createTenants(clcfg *ClusterConfig) {
 			t = tenants[clcfg.Tenant]
 		}
 		// Unknown tenant, so create tenant dir, then namespace.
-		_ = os.Mkdir("/tmp/"+clcfg.Tenant, 0666)
+		_ = os.Mkdir("/tmp/"+clcfg.Tenant, 0777)
 		if createNamespace(clcfg.Tenant) != nil {
 			return
 		}
@@ -1226,7 +1230,7 @@ func melMain() {
 		err, summary := DBFindAllTenantSummary()
 		if err == nil {
 			for _, s := range summary {
-				_ = os.Mkdir("/tmp/"+s.Tenant, 0666)
+				_ = os.Mkdir("/tmp/"+s.Tenant, 0777)
 				tenants[s.Tenant] = makeTenantInfo(s.Tenant)
 				tenants[s.Tenant].tenantSummary = &s
 			}

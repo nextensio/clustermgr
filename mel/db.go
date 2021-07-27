@@ -198,7 +198,7 @@ func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 }
 
 type ClusterConfig struct {
-	Id       string `json:"id" bson:"_id"` // ClusterID:TenantID
+	Id       string `json:"id" bson:"_id"` //TenantID
 	Cluster  string `json:"cluster" bson:"cluster"`
 	Tenant   string `json:"tenant" bson:"tenant"`
 	Image    string `json:"image" bson:"image"`

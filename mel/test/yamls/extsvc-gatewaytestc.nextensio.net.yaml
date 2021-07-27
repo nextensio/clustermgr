@@ -1,0 +1,49 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: external-svc-gatewaytestc-nextensio-net
+spec:
+  exportTo:
+  - "*"
+  hosts:
+  - gatewaytestc.nextensio.net
+  ports:
+  - number: 80
+    name: http2
+    protocol: HTTP2
+  resolution: DNS
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: via-egress-gateway-gatewaytestc-nextensio-net
+spec:
+  exportTo:
+  - "*"
+  hosts:
+  - gatewaytestc.nextensio.net
+  gateways:
+  - nextensio-egressgateway-gatewaytestc-nextensio-net
+  - mesh
+  http:
+  - match:
+    - gateways:
+      - mesh
+      port: 80
+    route:
+    - destination:
+        host: istio-egressgateway.istio-system.svc.cluster.local
+        port:
+          number: 80
+      weight: 100
+  - match:
+    - gateways:
+      - nextensio-egressgateway-gatewaytestc-nextensio-net
+      port: 80
+    route:
+    - destination:
+        host: gatewaytestc.nextensio.net
+        port:
+          number: 80
+      weight: 100
+
