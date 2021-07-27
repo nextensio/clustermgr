@@ -1100,17 +1100,19 @@ func createConnectors(ct *ClusterConfig) error {
 		}
 		binfo.markSweep = true
 		if binfo.version != b.Version {
-			var summary *ConnectorSummary
-			for _, c := range t.tenantSummary.Connectors {
+			sumIdx := -1
+			for i, c := range t.tenantSummary.Connectors {
 				if c.Connectid == b.Connectid {
-					summary = &c
+					sumIdx = i
 					break
 				}
 			}
-			if summary == nil {
-				summary = &ConnectorSummary{Image: ct.Image, Connectid: b.Connectid, CpodRepl: b.CpodRepl}
-				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, *summary)
+			if sumIdx == -1 {
+				s := ConnectorSummary{Image: ct.Image, Connectid: b.Connectid, CpodRepl: b.CpodRepl}
+				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, s)
+				sumIdx = len(t.tenantSummary.Connectors) - 1
 			}
+			summary := &t.tenantSummary.Connectors[sumIdx]
 			// First remove resources thats not needed anymore. If the number of cpod
 			// replicas hae reduced, we have to cleanup nxt-for and service rules etc..
 			err := deleteNxtForCpodReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
@@ -1230,9 +1232,12 @@ func melMain() {
 		err, summary := DBFindAllTenantSummary()
 		if err == nil {
 			for _, s := range summary {
+				// Copy s to tSum var so that we can assign the address to tenantSummary as s's addr
+				// doesn't change in the for loop
+				tSum := s
 				_ = os.Mkdir("/tmp/"+s.Tenant, 0777)
 				tenants[s.Tenant] = makeTenantInfo(s.Tenant)
-				tenants[s.Tenant].tenantSummary = &s
+				tenants[s.Tenant].tenantSummary = &tSum
 			}
 			break
 		}
