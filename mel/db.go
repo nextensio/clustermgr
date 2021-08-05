@@ -55,6 +55,7 @@ func DBConnect() bool {
 }
 
 type ConnectorSummary struct {
+	Id        string `bson:"_id"`
 	Image     string `bson:"image"`
 	Connectid string `bson:"connectid"`
 	CpodRepl  int    `bson:"cpodrepl"`
@@ -210,6 +211,22 @@ type ClusterConfig struct {
 	ApodRepl int    `json:"apodrepl" bson:"apodrepl"`
 	ApodSets int    `json:"apodsets" bson:"apodsets"`
 	Version  int    `json:"version" bson:"version"`
+}
+
+// Find a specific tenant  within a cluster
+func DBFindTenantInCluster(tenant string) (error, *ClusterConfig) {
+	var clcfg ClusterConfig
+	err := clusterCfgCltn.FindOne(
+		context.TODO(),
+		bson.M{"tenant": tenant},
+	).Decode(&clcfg)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	return nil, &clcfg
 }
 
 // Find all tenants present in a cluster

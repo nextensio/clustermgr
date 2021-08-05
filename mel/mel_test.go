@@ -33,7 +33,8 @@ func dropDB() {
 	if err != nil {
 		panic(err)
 	}
-	cmd := exec.Command("mongo", "/tmp/drop.js")
+	uri := os.Getenv("MY_MONGO_URI")
+	cmd := exec.Command("mongo", uri, "/tmp/drop.js")
 	cmd.Run()
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +13,10 @@ import (
 	"time"
 
 	common "gitlab.com/nextensio/common/go"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/golang/glog"
 )
@@ -39,7 +44,193 @@ type tenantInfo struct {
 var tenants map[string]*tenantInfo
 var inGwVersion bool
 var eGwVersion int
-var clusterMesh map[string]int
+
+func watchClusterDB(cDB *mongo.Database) {
+	var cs *mongo.ChangeStream
+	var err error
+
+	// Watch the cluster db. Retry for 5 times before bailing out of watch
+	for retries := 5; retries > 0; retries-- {
+		cs, err = cDB.Watch(context.TODO(), mongo.Pipeline{}, options.ChangeStream().SetFullDocument(options.UpdateLookup))
+		if err != nil {
+			// Call fatal only after the last retry otherwise, report error on continue retyring
+			if retries <= 1 {
+				glog.Fatalf("Not able to watch MongoDB Change notification-[err:%s]", err)
+			} else {
+				glog.Errorf("Not able to watch MongoDB Change notification-[err:%s] retrying... ", err)
+				time.Sleep(1 * time.Second)
+			}
+		} else {
+			glog.Info("Database watch started ")
+			break
+		}
+	}
+
+	// Whenever there is a new change event, decode the event and process  it
+	for cs.Next(context.TODO()) {
+		var changeEvent bson.M
+		var collTenant = true
+		var printMsg = ""
+		var id = ""
+
+		err = cs.Decode(&changeEvent)
+		if err != nil {
+			glog.Fatal(err)
+		}
+
+		// Get the collection info for this event first
+		ns := changeEvent["ns"].(primitive.M)
+		coll := ns["coll"].(string)
+
+		if coll != "NxtConnectors" && coll != "NxtTenants" {
+			// we don't care about any events from other collections
+			continue
+		}
+
+		// Get the tenant info from documentKey
+		dKey := changeEvent["documentKey"].(primitive.M)
+		tenant := dKey["_id"].(string)
+
+		// If its from Connectors collection get the Id
+		if coll == "NxtConnectors" {
+			collTenant = false
+			// Get the cluster and tenant info from the change event
+			for key, val := range changeEvent["documentKey"].(primitive.M) {
+				if key == "_id" {
+					splitted := strings.Split(val.(string), ":")
+					tenant = splitted[0]
+					id = val.(string)
+				}
+			}
+		}
+
+		switch changeEvent["operationType"] {
+		case "insert":
+			for {
+				err, clcfg := DBFindTenantInCluster(tenant)
+				if err == nil {
+					if clcfg != nil {
+						if collTenant {
+							glog.Info("DB Change Notification: Add Tenant - ", tenant)
+							printMsg = "Add new tenant error"
+							err = addNewTenant(clcfg)
+						} else {
+							glog.Info("DB Change Notification: Add/update connector - ", id, " to tenant - ", tenant)
+							printMsg = "create connector error"
+							err = createConnectors(clcfg)
+						}
+					}
+				}
+				if err == nil {
+					break
+				}
+				glog.Error(printMsg, err)
+				time.Sleep(time.Second)
+			}
+		case "delete":
+			glog.Info("DB Change Notification: Delete connector - ", id, " from tenant - ", tenant)
+			for {
+				if collTenant {
+					glog.Info("DB Change Notification: Delete tenant -", tenant)
+					printMsg = "delete namespace/tenant error"
+					err = deleteNamespace(tenant, tenants[tenant])
+				} else {
+					glog.Info("DB Change Notification: Delete connector - ", id, " from tenant - ", tenant)
+					printMsg = "delete connector error"
+					err = deleteConnector(tenant, id)
+				}
+				if err == nil {
+					break
+				}
+				glog.Error(printMsg, err)
+				time.Sleep(time.Second)
+			}
+
+		case "update":
+			for {
+				err, clcfg := DBFindTenantInCluster(tenant)
+				if err == nil {
+					if clcfg != nil {
+						if collTenant {
+							glog.Info("DB Change Notification: Add Tenant - ", tenant)
+							printMsg = "update agent error"
+							err = updateAgents(clcfg)
+						} else {
+							printMsg = "create connector error"
+							glog.Info("DB Change Notification: update connector - ", id, " to tenant - ", tenant)
+							err = createConnectors(clcfg)
+						}
+					}
+				}
+				if err == nil {
+					break
+				}
+				glog.Error(printMsg, err)
+				time.Sleep(time.Second)
+			}
+		}
+	}
+	glog.Fatalf("Watch MongoDB Change notification disconnected")
+}
+
+func addNewTenant(clcfg *ClusterConfig) error {
+	err := createTenants(clcfg)
+	if err != nil {
+		return err
+	}
+	// If connectors are already configured in the cluster, we need to create the connectors when the tenant
+	// is added to the cluster
+	err = createConnectors(clcfg)
+	if err != nil {
+		return err
+	}
+	// Create the Egress gateways for the new tenant
+	err = createEgressGateways()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func deleteConnector(tenant string, id string) error {
+	t := tenants[tenant]
+	for i, c := range t.tenantSummary.Connectors {
+		if c.Id == id {
+			// First delete from kubectl and THEN update the summary database that then
+			// entry has been deleted, so that if we crash in the midst of a delete, we
+			// will still continue attempting a delete when we come back up next time.
+			// Trying to delete non existant stuff will return a NotFound and we handle that
+			// gracefully
+			err := deleteOneConnector(tenant, c.Connectid, &c)
+			if err != nil {
+				return err
+			}
+			l := len(t.tenantSummary.Connectors) - 1
+			t.tenantSummary.Connectors[i] = t.tenantSummary.Connectors[l]
+			t.tenantSummary.Connectors = t.tenantSummary.Connectors[0:l]
+			err = DBUpdateTenantSummary(tenant, t.tenantSummary)
+			if err != nil {
+				// put it back and try again next time
+				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, c)
+				return err
+			}
+			delete(t.bundleInfo, c.Connectid)
+			break
+		}
+	}
+	return nil
+}
+
+func updateAgents(clcfg *ClusterConfig) error {
+	t := tenants[clcfg.Tenant]
+	err := createAgentDeployments(clcfg)
+	if err != nil {
+		return err
+	}
+	t.deployVersion = clcfg.Version
+	return nil
+}
 
 func makeTenantInfo(tenant string) *tenantInfo {
 	t := tenantInfo{}
@@ -448,12 +639,15 @@ func generateDockerCred(ns string) (string, error) {
 func removeDir(directory string) {
 	dirRead, _ := os.Open(directory)
 	dirFiles, _ := dirRead.Readdir(0)
+	// Recursively remove files in the directory
 	for index := range dirFiles {
 		fileHere := dirFiles[index]
 		nameHere := fileHere.Name()
 		fullPath := directory + "/" + nameHere
 		os.Remove(fullPath)
 	}
+	// Now remove the directory
+	os.Remove(directory)
 }
 
 func deleteNamespace(ns string, t *tenantInfo) error {
@@ -561,7 +755,7 @@ func createNamespace(ns string) error {
 	return nil
 }
 
-func createTenants(clcfg *ClusterConfig) {
+func createTenants(clcfg *ClusterConfig) error {
 	t := tenants[clcfg.Tenant]
 	if t == nil || !t.created {
 		if t == nil {
@@ -570,18 +764,22 @@ func createTenants(clcfg *ClusterConfig) {
 		}
 		// Unknown tenant, so create tenant dir, then namespace.
 		_ = os.Mkdir("/tmp/"+clcfg.Tenant, 0777)
-		if createNamespace(clcfg.Tenant) != nil {
-			return
+		err := createNamespace(clcfg.Tenant)
+		if err != nil {
+			return err
 		}
 		t.created = true
 	}
 	t.markSweep = true
 
 	if t.deployVersion != clcfg.Version {
-		if createAgentDeployments(clcfg) == nil {
-			t.deployVersion = clcfg.Version
+		err := createAgentDeployments(clcfg)
+		if err != nil {
+			return err
 		}
+		t.deployVersion = clcfg.Version
 	}
+	return nil
 }
 
 //---------------------------------------Consul------------------------------------
@@ -732,7 +930,7 @@ func createEgressGateways() error {
 		return err
 	}
 	if cl == nil {
-		return errors.New("Cant find my cluster")
+		return errors.New(fmt.Sprintf("Cant find my cluster : %s ", MyCluster))
 	}
 	if eGwVersion == cl.Version {
 		return nil
@@ -744,7 +942,6 @@ func createEgressGateways() error {
 		}
 	}
 	eGwVersion = cl.Version
-
 	return nil
 }
 
@@ -1078,7 +1275,6 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) er
 
 func createConnectors(ct *ClusterConfig) error {
 	t := tenants[ct.Tenant]
-	// Till we have mongo notifications working, do a mark and sweep
 	for _, c := range t.tenantSummary.Connectors {
 		binfo := t.bundleInfo[c.Connectid]
 		if binfo == nil {
@@ -1110,7 +1306,7 @@ func createConnectors(ct *ClusterConfig) error {
 				}
 			}
 			if sumIdx == -1 {
-				s := ConnectorSummary{Image: ct.Image, Connectid: b.Connectid, CpodRepl: b.CpodRepl}
+				s := ConnectorSummary{Id: b.Uid, Image: ct.Image, Connectid: b.Connectid, CpodRepl: b.CpodRepl}
 				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, s)
 				sumIdx = len(t.tenantSummary.Connectors) - 1
 			}
@@ -1211,7 +1407,6 @@ func melMain() {
 	inGwVersion = false
 	eGwVersion = 0
 	tenants = make(map[string]*tenantInfo)
-	clusterMesh = make(map[string]int)
 
 	// Create consul
 	for {
@@ -1238,7 +1433,7 @@ func melMain() {
 				// doesn't change in the for loop
 				tSum := s
 				_ = os.Mkdir("/tmp/"+s.Tenant, 0777)
-				tenants[s.Tenant] = makeTenantInfo(s.Tenant)
+				tenants[s.Tenant] = makeTenantInfo(tSum.Tenant)
 				tenants[s.Tenant].tenantSummary = &tSum
 			}
 			break
@@ -1247,41 +1442,76 @@ func melMain() {
 		time.Sleep(1 * time.Second)
 	}
 
-	//TODO: This for loop will go away once we register with mongo for change notifications
 	for {
-		for {
-			err := createIngressGateway()
-			if err == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
+		err := createIngressGateway()
+		if err == nil {
+			break
 		}
-		for {
-			err := createEgressGateways()
-			if err == nil {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-		// Till we get the mongo notifications working, do a mark and sweep of tenants
-		// to see who has been deleted etc..
-		for _, t := range tenants {
-			t.markSweep = false
-			// createTenants below will set it to true for tenants that still exist
-		}
-		_, clTcfg := DBFindAllTenantsInCluster()
-		for _, Tcfg := range clTcfg {
-			createTenants(&Tcfg)
-			createConnectors(&Tcfg)
-		}
-		for k, t := range tenants {
-			// If its still marked as false, then there is no such tenant
-			if !t.markSweep {
-				deleteNamespace(k, t)
-			}
-		}
-		time.Sleep(1 * time.Second)
+		glog.Error("Create ingress gw failed", err)
+		time.Sleep(time.Second)
 	}
+	for {
+		err := createEgressGateways()
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+
+	// Do a mark and sweep of tenants if the tenant hasn't been removed properly
+	for _, t := range tenants {
+		t.markSweep = false
+		// createTenants below will set it to true for tenants that still exist
+	}
+	for {
+		err, clTcfg := DBFindAllTenantsInCluster()
+		for _, Tcfg := range clTcfg {
+			glog.Infof("Tenants in  %v:- <%v>", MyCluster, Tcfg.Tenant)
+			for {
+				err := createTenants(&Tcfg)
+				if err == nil {
+					break
+				}
+				glog.Error("Cannot create tenant", err)
+				time.Sleep(time.Second)
+			}
+			for {
+				err := createConnectors(&Tcfg)
+				if err == nil {
+					break
+				}
+				glog.Error("Cannot create connector", err)
+				time.Sleep(time.Second)
+			}
+		}
+		if err == nil {
+			break
+		}
+		glog.Error("Cannot find tenants", err)
+		time.Sleep(time.Second)
+	}
+	for k, t := range tenants {
+		// If its still marked as false, then there is no such tenant
+		if !t.markSweep {
+			for {
+				err := deleteNamespace(k, t)
+				if err == nil {
+					break
+				}
+				glog.Error("Cannot delete namespace", err)
+			}
+		}
+	}
+
+	// After we have run through the entire database once above,
+	// register Cluster database for event notification and start event
+	// based actions beyond this point
+	go watchClusterDB(clusterDB)
+
+	for {
+		time.Sleep(86400 * time.Second)
+	}
+
 }
 
 func main() {
