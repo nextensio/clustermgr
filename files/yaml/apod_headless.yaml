@@ -8,8 +8,6 @@ metadata:
     monitoring: nxt-prometheus-metrics
 spec:
   ports:
-  - port: 8080
-    name: http
   - name: nxt-metrics
     port: 8888
     protocol: TCP

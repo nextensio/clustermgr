@@ -328,3 +328,17 @@ func GetCpodHeadless(namespace string, podname string) string {
 
 	return podRepl
 }
+
+func GetApodHeadless(namespace string, podname string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/apod_headless.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fc := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(fc, namespace)
+	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
+	podRepl := rePod.ReplaceAllString(nspcRepl, podname)
+
+	return podRepl
+}

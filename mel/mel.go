@@ -430,6 +430,13 @@ func generateCpodHeadless(tenant string, podname string) string {
 	return yamlFile(file, yaml)
 }
 
+// Generate envoy flow control settings per tenant
+func generateApodHeadless(tenant string, podname string) string {
+	file := "/tmp/" + tenant + "/headless-" + podname + ".yaml"
+	yaml := GetApodHeadless(tenant, podname)
+	return yamlFile(file, yaml)
+}
+
 // Generate service for handling outside connections into an Apod
 func generateApodOutService(tenant string, podname string) string {
 	file := "/tmp/" + tenant + "/service-outside-" + podname + ".yaml"
@@ -548,14 +555,26 @@ func createAgentDeployments(ct *ClusterConfig) error {
 		if err != nil {
 			return err
 		}
-		file := generateApodDeploy(ct.Tenant, summary.Image, podname, summary.ApodRepl)
+		file := generateApodHeadless(ct.Tenant, podname)
+		if file == "" {
+			return errors.New("cannot create headless file")
+		}
+		// clustermgr might have crashed while in here and come back up and now
+		// we might be trying to delete something thats already deleted, so dont
+		// panic in that case
+		out, err := kubectlDelete(file)
+		if err != nil && !strings.Contains(out, "NotFound") {
+			return err
+		}
+		os.Remove(file)
+		file = generateApodDeploy(ct.Tenant, summary.Image, podname, summary.ApodRepl)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
 		// panic in that case
-		out, err := kubectlDelete(file)
+		out, err = kubectlDelete(file)
 		if err != nil && !strings.Contains(out, "NotFound") {
 			return err
 		}
@@ -594,6 +613,14 @@ func createAgentDeployments(ct *ClusterConfig) error {
 			return err
 		}
 		err = createApodNxtConnect(ct.Tenant, podname)
+		if err != nil {
+			return err
+		}
+		file = generateApodHeadless(ct.Tenant, podname)
+		if file == "" {
+			return errors.New("cannot create headless file")
+		}
+		err = kubectlApply(file)
 		if err != nil {
 			return err
 		}
@@ -662,7 +689,18 @@ func deleteNamespace(ns string, t *tenantInfo) error {
 		if err != nil {
 			return err
 		}
-		file := generateApodDeploy(ns, t.tenantSummary.Image, podname, t.tenantSummary.ApodRepl)
+		file := generateApodHeadless(ns, podname)
+		if file == "" {
+			return errors.New("cannot create headless file")
+		}
+		// clustermgr might have crashed while in here and come back up and now
+		// we might be trying to delete something thats already deleted, so dont
+		// panic in that case
+		outs, err := kubectlDelete(file)
+		if err != nil && !strings.Contains(outs, "NotFound") {
+			return err
+		}
+		file = generateApodDeploy(ns, t.tenantSummary.Image, podname, t.tenantSummary.ApodRepl)
 		if file == "" {
 			return errors.New("yaml fail")
 		}
@@ -1187,7 +1225,7 @@ func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
 	file = generateCpodHeadless(ct.Tenant, b.Connectid)
 	if file == "" {
 		glog.Error("Pod headless file failed", ct.Tenant, b.Connectid)
-		return errors.New("Cannot create health file")
+		return errors.New("Cannot create headless file")
 	}
 	err = kubectlApply(file)
 	if err != nil {
