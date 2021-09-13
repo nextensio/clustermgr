@@ -28,6 +28,7 @@ var MyYaml string
 var ConsulWanIP string
 var ConsulStorage string
 var MyMongo string
+var MyJaeger string
 
 type bundleInfo struct {
 	version   int
@@ -405,14 +406,14 @@ func deleteApodNxtConnect(tenant string, podname string) error {
 // Generate StatefulSet deployment for Apod
 func generateApodDeploy(tenant string, image string, podname string, replicas int) string {
 	file := "/tmp/" + tenant + "/deploy-" + podname + ".yaml"
-	yaml := GetApodDeploy(tenant, image, MyMongo, podname, MyCluster, replicas)
+	yaml := GetApodDeploy(tenant, image, MyMongo, MyJaeger, podname, MyCluster, replicas)
 	return yamlFile(file, yaml)
 }
 
 // Generate StatefulSet deployment for Cpod
 func generateCpodDeploy(tenant string, image string, podname string, replicas int) string {
 	file := "/tmp/" + tenant + "/deploy-" + podname + ".yaml"
-	yaml := GetCpodDeploy(tenant, image, MyMongo, podname, MyCluster, replicas)
+	yaml := GetCpodDeploy(tenant, image, MyMongo, MyJaeger, podname, MyCluster, replicas)
 	return yamlFile(file, yaml)
 }
 
@@ -1433,6 +1434,10 @@ func melMain() {
 	MyMongo = GetEnv("MY_MONGO_URI", "UNKNOWN_MONGO")
 	if MyMongo == "UNKNOWN_MONGO" {
 		glog.Fatal("Unknown Mongo URI")
+	}
+	MyJaeger = GetEnv("MY_JAEGER_COLLECTOR", "UNKNOWN_JAEGER")
+	if MyJaeger == "UNKNOWN_JAEGER" {
+		glog.Fatal("Unknown Jaeger URI")
 	}
 	TestEnviron := GetEnv("TEST_ENVIRONMENT", "NOT_TEST")
 	if TestEnviron == "true" {

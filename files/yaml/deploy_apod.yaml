@@ -51,6 +51,8 @@ spec:
             value: "REPLACE_CLUSTER"
           - name: MY_MONGO_URI
             value: "REPLACE_MONGO"
+          - name: MY_JAEGER_COLLECTOR
+            value: "REPLACE_JAEGER"
       - name: jaeger-agent
         image: jaegertracing/jaeger-agent:1.24.0  # The agent version should match the operator version
         imagePullPolicy: IfNotPresent

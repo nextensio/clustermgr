@@ -219,7 +219,7 @@ func GetExtSvc(gateway string) string {
 	return svcRepl
 }
 
-func GetApodDeploy(namespace string, image string, mongo string, podname string, cluster string, replicas int) string {
+func GetApodDeploy(namespace string, image string, mongo string, jaeger string, podname string, cluster string, replicas int) string {
 	content, err := ioutil.ReadFile(MyYaml + "/deploy_apod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -231,8 +231,10 @@ func GetApodDeploy(namespace string, image string, mongo string, podname string,
 	deplRepl := reImg.ReplaceAllString(nspcRepl, image)
 	reMongo := regexp.MustCompile(`REPLACE_MONGO`)
 	mongoRepl := reMongo.ReplaceAllString(deplRepl, mongo)
+	reJaeger := regexp.MustCompile(`REPLACE_JAEGER`)
+	jaegerRepl := reJaeger.ReplaceAllString(mongoRepl, jaeger)
 	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
-	podRepl := rePod.ReplaceAllString(mongoRepl, podname)
+	podRepl := rePod.ReplaceAllString(jaegerRepl, podname)
 	reClu := regexp.MustCompile(`REPLACE_CLUSTER`)
 	cluRepl := reClu.ReplaceAllString(podRepl, cluster)
 	reRepl := regexp.MustCompile(`REPLACE_REPLICAS`)
@@ -241,7 +243,7 @@ func GetApodDeploy(namespace string, image string, mongo string, podname string,
 	return replRepl
 }
 
-func GetCpodDeploy(namespace string, image string, mongo string, podname string, cluster string, replicas int) string {
+func GetCpodDeploy(namespace string, image string, mongo string, jaeger string, podname string, cluster string, replicas int) string {
 	content, err := ioutil.ReadFile(MyYaml + "/deploy_cpod.yaml")
 	if err != nil {
 		log.Fatal(err)
@@ -253,8 +255,10 @@ func GetCpodDeploy(namespace string, image string, mongo string, podname string,
 	deplRepl := reImg.ReplaceAllString(nspcRepl, image)
 	reMongo := regexp.MustCompile(`REPLACE_MONGO`)
 	mongoRepl := reMongo.ReplaceAllString(deplRepl, mongo)
+	reJaeger := regexp.MustCompile(`REPLACE_JAEGER`)
+	jaegerRepl := reJaeger.ReplaceAllString(mongoRepl, jaeger)
 	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
-	podRepl := rePod.ReplaceAllString(mongoRepl, podname)
+	podRepl := rePod.ReplaceAllString(jaegerRepl, podname)
 	reClu := regexp.MustCompile(`REPLACE_CLUSTER`)
 	cluRepl := reClu.ReplaceAllString(podRepl, cluster)
 	reRepl := regexp.MustCompile(`REPLACE_REPLICAS`)
