@@ -224,6 +224,9 @@ func GetApodDeploy(namespace string, image string, mongo string, jaeger string, 
 	if err != nil {
 		log.Fatal(err)
 	}
+	reJgrNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	jgrNspcRepl := reJgrNspc.ReplaceAllString(jaeger, namespace)
+
 	deploy := string(content)
 	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
 	nspcRepl := reNspc.ReplaceAllString(deploy, namespace)
@@ -232,7 +235,7 @@ func GetApodDeploy(namespace string, image string, mongo string, jaeger string, 
 	reMongo := regexp.MustCompile(`REPLACE_MONGO`)
 	mongoRepl := reMongo.ReplaceAllString(deplRepl, mongo)
 	reJaeger := regexp.MustCompile(`REPLACE_JAEGER`)
-	jaegerRepl := reJaeger.ReplaceAllString(mongoRepl, jaeger)
+	jaegerRepl := reJaeger.ReplaceAllString(mongoRepl, jgrNspcRepl)
 	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
 	podRepl := rePod.ReplaceAllString(jaegerRepl, podname)
 	reClu := regexp.MustCompile(`REPLACE_CLUSTER`)
@@ -248,6 +251,9 @@ func GetCpodDeploy(namespace string, image string, mongo string, jaeger string, 
 	if err != nil {
 		log.Fatal(err)
 	}
+	reJgrNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	jgrNspcRepl := reJgrNspc.ReplaceAllString(jaeger, namespace)
+
 	deploy := string(content)
 	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
 	nspcRepl := reNspc.ReplaceAllString(deploy, namespace)
@@ -256,7 +262,7 @@ func GetCpodDeploy(namespace string, image string, mongo string, jaeger string, 
 	reMongo := regexp.MustCompile(`REPLACE_MONGO`)
 	mongoRepl := reMongo.ReplaceAllString(deplRepl, mongo)
 	reJaeger := regexp.MustCompile(`REPLACE_JAEGER`)
-	jaegerRepl := reJaeger.ReplaceAllString(mongoRepl, jaeger)
+	jaegerRepl := reJaeger.ReplaceAllString(mongoRepl, jgrNspcRepl)
 	rePod := regexp.MustCompile(`REPLACE_POD_NAME`)
 	podRepl := rePod.ReplaceAllString(jaegerRepl, podname)
 	reClu := regexp.MustCompile(`REPLACE_CLUSTER`)
