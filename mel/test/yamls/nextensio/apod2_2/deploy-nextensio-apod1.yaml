@@ -50,6 +50,8 @@ spec:
             value: "gatewaytesta"
           - name: MY_MONGO_URI
             value: "REPLACE_MONGO_URI"
+          - name: MY_JAEGER_COLLECTOR
+            value: "none"
       - name: jaeger-agent
         image: jaegertracing/jaeger-agent:1.24.0  # The agent version should match the operator version
         imagePullPolicy: IfNotPresent

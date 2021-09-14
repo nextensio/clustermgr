@@ -13,6 +13,7 @@ export TEST_ENVIRONMENT=true
 # 172.18.0.2 mongodb-1-service.default.svc.cluster.local
 # 172.18.0.2 mongodb-2-service.default.svc.cluster.local
 export MY_MONGO_URI=mongodb://172.18.0.2:27017,172.18.0.2:27018,172.18.0.2:27019/
+export MY_JAEGER_COLLECTOR=none
 
 sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/nextensio/apod1_1/deploy-nextensio-apod1.yaml
 sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/nextensio/foobar2/deploy-nextensio-foobar-nextensio-com.yaml
