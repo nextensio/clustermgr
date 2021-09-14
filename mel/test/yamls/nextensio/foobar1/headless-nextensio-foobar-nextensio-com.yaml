@@ -5,10 +5,15 @@ metadata:
   namespace: nxt-nextensio
   labels:
     app: nextensio-foobar-nextensio-com
+    monitoring: nxt-prometheus-metrics
 spec:
   ports:
   - port: 8080
     name: http
+  - name: nxt-metrics
+    port: 8888
+    protocol: TCP
+    targetPort: 8888
   clusterIP: None
   selector:
     app: nextensio-foobar-nextensio-com
