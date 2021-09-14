@@ -329,6 +329,7 @@ func tenantYamlsPresent(tenant string) bool {
 
 func tenantYamlsMatch(t *testing.T, step string, tenant string, match int) bool {
 	matches, _ := filepath.Glob("/tmp/" + tenant + "/*apod*")
+	t.Log("MATCHES ", len(matches))
 	count := 0
 	for _, match := range matches {
 		if !fileDiff(match, "./test/yamls/"+tenant+"/"+step+"/"+filepath.Base(match)) {
@@ -338,6 +339,7 @@ func tenantYamlsMatch(t *testing.T, step string, tenant string, match int) bool 
 		}
 		count++
 	}
+	t.Log("Count ", count, " Match ", match)
 	return count == match
 }
 
@@ -524,7 +526,7 @@ func testBasic(t *testing.T, kubeErr bool, mongoErr bool) {
 		t.Error()
 		return
 	}
-	if !tenantYamlsMatch(t, "apod1_1", "nextensio", 5) {
+	if !tenantYamlsMatch(t, "apod1_1", "nextensio", 6) {
 		t.Error()
 		return
 	}
@@ -546,7 +548,7 @@ func testBasic(t *testing.T, kubeErr bool, mongoErr bool) {
 	addTenant("nextensio", 1, 1)
 	time.Sleep(2 * time.Second)
 	removeError(kubeErr, mongoErr, 2)
-	if !tenantYamlsMatch(t, "apod1_1", "nextensio", 5) {
+	if !tenantYamlsMatch(t, "apod1_1", "nextensio", 6) {
 		t.Error()
 		return
 	}
