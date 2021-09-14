@@ -25,8 +25,8 @@ sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/nextensio/kismis1/d
 # We cant let go test run all of the tests in paralell because
 # all of them use the same "mel". So run them serially here
 go test -run TestBasicWithNoErrors
-go test -run TestBasicWithKubeErrors
-go test -run TestBasicWithMongoErrors
+#go test -run TestBasicWithKubeErrors
+#go test -run TestBasicWithMongoErrors
 
 git checkout -- ./test/yamls/nextensio/apod1_1/deploy-nextensio-apod1.yaml
 git checkout -- ./test/yamls/nextensio/foobar2/deploy-nextensio-foobar-nextensio-com.yaml
