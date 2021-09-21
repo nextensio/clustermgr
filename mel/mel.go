@@ -315,13 +315,6 @@ func yamlFile(file string, yaml string) string {
 	return file
 }
 
-// Generate envoy flow control settings for istio ingress/egress gw
-func generateIstioFlowControl() string {
-	file := "/tmp/istio_flow_control.yaml"
-	yaml := GetFlowControlIstio()
-	return yamlFile(file, yaml)
-}
-
 // Generate envoy flow control settings per tenant
 func generateTenantFlowControl(t string) string {
 	file := "/tmp/" + t + "/flow_control.yaml"
@@ -938,20 +931,11 @@ func generateIngressGw() string {
 }
 
 func createIngressGw() error {
-	file := generateIstioFlowControl()
+	file := generateIngressGw()
 	if file == "" {
 		return errors.New("yaml fail")
 	}
 	err := kubectlApply(file)
-	if err != nil {
-		return err
-	}
-
-	file = generateIngressGw()
-	if file == "" {
-		return errors.New("yaml fail")
-	}
-	err = kubectlApply(file)
 	if err != nil {
 		return err
 	}

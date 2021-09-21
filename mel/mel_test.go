@@ -276,10 +276,6 @@ func yamlsPresent() bool {
 		consulPresent = true
 	}
 
-	if _, err := os.Stat("/tmp/istio_flow_control.yaml"); err == nil {
-		istioPresent = true
-	}
-
 	if _, err := os.Stat("/tmp/igw.yaml"); err == nil {
 		igwPresent = true
 	}
