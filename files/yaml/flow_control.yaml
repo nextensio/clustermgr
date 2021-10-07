@@ -27,21 +27,8 @@ spec:
                 http2_protocol_options:
                   max_concurrent_streams: 100000
                   initial_stream_window_size: 65536
-                  initial_connection_window_size: 65536
           http2_protocol_options:
             initial_stream_window_size: 65536  
-            initial_connection_window_size: 65536 
-          per_connection_buffer_limit_bytes: 65536
-    # There is again a cluster rule here because the above rule only matches port 80
-    # and hence the per_connection_buffer_limit_bytes setting there will only apply
-    # to port 80. But I want to apply per_connection_buffer_limit_bytes to ALL ports,
-    # http2 and non-http2 (web socket in my case). So this rule will apply to all other
-    # ports (in my case port 443 websocket) and set their envoy buffer limit
-    - applyTo: CLUSTER
-      patch:
-        operation: MERGE
-        value:
-          per_connection_buffer_limit_bytes: 65536
     - applyTo: NETWORK_FILTER
       match:
         listener:
@@ -59,14 +46,7 @@ spec:
             http2_protocol_options:
               max_concurrent_streams: 100000
               initial_stream_window_size: 65536
-              initial_connection_window_size: 65536
             "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
             http2_protocol_options:
               max_concurrent_streams: 100000
               initial_stream_window_size: 65536
-              initial_connection_window_size: 65536
-    - applyTo: LISTENER
-      patch:
-        operation: MERGE
-        value:
-          per_connection_buffer_limit_bytes: 65536
