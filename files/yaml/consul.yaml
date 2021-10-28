@@ -36,7 +36,10 @@ metadata:
     release: happy-name
 data:
   extra-from-values.json: |-
-    {}
+    {
+      "reconnect_timeout": "720h",
+      "reconnect_timeout_wan": "720h"
+    }
     
 
 ---
