@@ -159,7 +159,6 @@ func UTAddClusterConfig(data *ClusterConfig) error {
 	if result.Err() != nil {
 		return result.Err()
 	}
-
 	return nil
 }
 
@@ -269,7 +268,6 @@ func addGateways() {
 
 func yamlsPresent() bool {
 	consulPresent := false
-	istioPresent := false
 	igwPresent := false
 
 	if _, err := os.Stat("/tmp/consul.yaml"); err == nil {
@@ -280,7 +278,7 @@ func yamlsPresent() bool {
 		igwPresent = true
 	}
 
-	return consulPresent && istioPresent && igwPresent
+	return consulPresent && igwPresent
 }
 
 func egwYamlsMatch(t *testing.T) bool {
@@ -445,6 +443,12 @@ func bundleYamlsRemoved(tenant string, bundle string) bool {
 func tenantYamlsRemoved(tenant string) bool {
 	matches, _ := filepath.Glob("/tmp/" + tenant + "/*")
 	return len(matches) == 0
+}
+
+func cleanupTenantFiles(tenant string) {
+	files := "/tmp/" + tenant + "/*.yaml"
+	cmd := exec.Command("bash", "-c", "rm ", files)
+	cmd.Run()
 }
 
 func cleanupFiles() {
@@ -645,6 +649,9 @@ func testBasic(t *testing.T, kubeErr bool, mongoErr bool) {
 	time.Sleep(10 * time.Second)
 	removeError(kubeErr, mongoErr, 10)
 	if !tenantYamlsRemoved("nextensio") {
+		// Sometimes, "kubectl delete namespace" takes more than 20secs to finish
+		// In this scenario, the above check will fail. If it happens repeatedly,
+		// you can increase the wait time in removeError() call above.
 		t.Error()
 		return
 	}
@@ -652,14 +659,163 @@ func testBasic(t *testing.T, kubeErr bool, mongoErr bool) {
 	cleanupFiles()
 }
 
+// Advanced test:
+// 1. Add 2 tenants with 1 apod replica
+// 2. Add one bundle with 1 cpod replica to the first tenant
+// 3. Add one bundle with 2 cpod replica to the 2nd tenant
+// 4. Add 2nd bundle with 2 cpod replica to the first tenant
+// 5. Delete the bundle from 2nd tenant
+// 6. Update 2nd tenant with 2 apods and replicas
+// Check the yamls
+// 7. Delete the bundles
+// 8. Delete tenants
+func testAdvanced(t *testing.T, kubeErr bool, mongoErr bool) {
+	dropDB()
+	// Remove files left over from previous iteration if any
+	cleanupFiles()
+	cleanupTenantFiles("dogfood")
+	go melMain()
+	// Let mel connect to DB and stuff, give it couple of seconds
+	time.Sleep(2 * time.Second)
+	for {
+		if !dbConnected {
+			time.Sleep(time.Second)
+		} else {
+			break
+		}
+	}
+	insertError(kubeErr, mongoErr)
+	addGateways()
+	time.Sleep(2 * time.Second)
+	removeError(kubeErr, mongoErr, 2)
+	if !yamlsPresent() {
+		t.Error()
+		return
+	}
+	if !egwYamlsMatch(t) {
+		t.Error()
+		return
+	}
+	// Step 1 : Add 2 tenants
+	insertError(kubeErr, mongoErr)
+	addTenant("nextensio", 1, 1)
+	addTenant("dogfood", 1, 1)
+
+	// Step 2: Add a bundle to nextensio tenant
+	conn1 := CreateBundle("nextensio", "foobar@nextensio.com", 1)
+	UTAddOneClusterBundle("nextensio", &conn1)
+
+	// Step 3: Add a bundle to dogfood tenant
+	conn1_ten2 := CreateBundle("dogfood", "kismis@dogfood.com", 2)
+	UTAddOneClusterBundle("dogfood", &conn1_ten2)
+
+	// Step 4: Add a second bundle to nextensio tenant
+	conn2 := CreateBundle("nextensio", "kismis@nextensio.com", 2)
+	UTAddOneClusterBundle("nextensio", &conn2)
+
+	// Step 5: Delete the bundle from dogfood
+	UTDelOneClusterBundle("dogfood", "kismis@dogfood.com")
+
+	// Step 6: increase apod sets and replicas for dogfood
+	insertError(kubeErr, mongoErr)
+	addTenant("dogfood", 2, 2)
+
+	time.Sleep(5 * time.Second)
+	removeError(kubeErr, mongoErr, 10)
+
+	// Now check the tenant yaml files are present
+	if !tenantYamlsPresent("nextensio") || !tenantYamlsPresent("dogfood") {
+		t.Error()
+		return
+	}
+	// Now check if the tenant yamls match
+	if !tenantYamlsMatch(t, "apod1_1", "nextensio", 6) || !tenantYamlsMatch(t, "apod2_2", "dogfood", 16) {
+		t.Error()
+		return
+	}
+	// Check the dogfood tenant summary
+	if !tenantSummaryMatch(t, "dogfood", 2, 2, nil) {
+		t.Error()
+		return
+	}
+
+	// Bundle Check for nextensio tenant
+	if !bundleYamlsMatch(t, "foobar1", "nextensio", "foobar", 9) {
+		t.Error()
+		return
+	}
+	if !bundleYamlsMatch(t, "kismis1", "nextensio", "kismis", 11) {
+		t.Error()
+		return
+	}
+
+	cidFoobar := connectId("nextensio", "foobar@nextensio.com")
+	cidKismis := connectId("nextensio", "kismis@nextensio.com")
+	csum := []ConnectorSummary{
+		{Image: MinionImage, CpodRepl: 1, Connectid: cidFoobar},
+		{Image: MinionImage, CpodRepl: 2, Connectid: cidKismis},
+	}
+
+	// Check nextensio tenant summary
+	if !tenantSummaryMatch(t, "nextensio", 1, 1, csum) {
+		t.Error()
+		return
+	}
+
+	// Check the bundle yamls are removed for the deleted bundle
+	if !bundleYamlsRemoved("dogfood", "foobar") {
+		t.Error()
+		return
+	}
+
+	// Step 7: Delete foobar bundle
+	UTDelOneClusterBundle("nextensio", "foobar@nextensio.com")
+
+	// Step 7a: Delete kismis bundle
+	UTDelOneClusterBundle("nextensio", "kismis@nextensio.com")
+
+	// Step 8: Delete the tenant nextensio
+	UTDelClusterConfig("nextensio")
+	time.Sleep(10 * time.Second)
+	removeError(kubeErr, mongoErr, 10)
+	if !tenantYamlsRemoved("nextensio") {
+		// Sometimes, "kubectl delete namespace" takes more than 20secs to finish
+		// In this scenario, the above check will fail. If it happens repeatedly,
+		// you can increase the wait time in removeError() call above.
+		t.Error()
+		return
+	}
+	// Step 8a: Delete the tenant dogfood
+	UTDelClusterConfig("dogfood")
+	time.Sleep(10 * time.Second)
+	removeError(kubeErr, mongoErr, 10)
+	if !tenantYamlsRemoved("dogfood") {
+		// Sometimes, "kubectl delete namespace" takes more than 20secs to finish
+		// In this scenario, the above check will fail. If it happens repeatedly,
+		// you can increase the wait time in removeError() call above.
+		t.Error()
+		return
+	}
+
+	cleanupFiles()
+	cleanupTenantFiles("dogfood")
+}
+
 func TestBasicWithNoErrors(t *testing.T) {
 	testBasic(t, false, false)
+	fmt.Println("\nAdvanced tests with no Simulated Errors")
+	testAdvanced(t, false, false)
 }
 
 func TestBasicWithKubeErrors(t *testing.T) {
 	testBasic(t, true, false)
+	fmt.Println("\nAdvanced tests with Kube Errors")
+	testAdvanced(t, true, false)
+
 }
 
 func TestBasicWithMongoErrors(t *testing.T) {
 	testBasic(t, false, true)
+	fmt.Println("\nAdvanced tests with MongoDB Errors")
+	testAdvanced(t, false, true)
 }

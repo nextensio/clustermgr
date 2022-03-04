@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
@@ -21,6 +22,7 @@ var clusterCfgCltn *mongo.Collection
 var clusterDB *mongo.Database
 var bundleCltn *mongo.Collection
 var summaryCltn *mongo.Collection
+var errRecCltn *mongo.Collection
 
 func ClusterGetDBName(cl string) string {
 	return ("Cluster-" + cl + "-DB")
@@ -50,8 +52,18 @@ func DBConnect() bool {
 	summaryCltn = clusterDB.Collection("NxtTenantSummary")
 	clusterCfgCltn = clusterDB.Collection("NxtTenants")
 	clusterGwCltn = clusterDB.Collection("NxtGateways")
+	errRecCltn = clusterDB.Collection("NxtErrRec")
 
 	return true
+}
+
+func DBCheckError(err error) {
+	// If there is network or timeout error from the server, sit in a loop until
+	// its cleared as we can't do much until the DB is accessible again.
+	for mongo.IsNetworkError(err) || mongo.IsTimeout(err) {
+		glog.Infof("DB Error : %v", err)
+		time.Sleep(2 * time.Second)
+	}
 }
 
 type ConnectorSummary struct {
@@ -89,6 +101,7 @@ func DBFindAllTenantSummary() (error, []TenantSummary) {
 	}
 	err = cursor.All(context.TODO(), &summary)
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 
@@ -114,6 +127,7 @@ func DBFindTenantSummary(tenant string) (error, *TenantSummary) {
 		return nil, nil
 	}
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &summary
@@ -145,6 +159,7 @@ func DBUpdateTenantSummary(tenant string, summary *TenantSummary) error {
 	)
 
 	if err.Err() != nil {
+		DBCheckError(err.Err())
 		return err.Err()
 	}
 
@@ -166,6 +181,7 @@ func DBDeleteTenantSummary(tenant string) error {
 	)
 
 	if err != nil {
+		DBCheckError(err)
 		return err
 	}
 	return nil
@@ -198,6 +214,7 @@ func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 		return nil, nil
 	}
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &gateway
@@ -215,6 +232,14 @@ type ClusterConfig struct {
 
 // Find a specific tenant  within a cluster
 func DBFindTenantInCluster(tenant string) (error, *ClusterConfig) {
+	if unitTesting {
+		mongoErr := GetEnv("TEST_MONGO_ERR", "NOT_TEST")
+		if mongoErr == "true" {
+			glog.Error("Mongo UT error")
+			return errors.New("Mongo unit test error"), nil
+		}
+	}
+
 	var clcfg ClusterConfig
 	err := clusterCfgCltn.FindOne(
 		context.TODO(),
@@ -224,6 +249,7 @@ func DBFindTenantInCluster(tenant string) (error, *ClusterConfig) {
 		return nil, nil
 	}
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &clcfg
@@ -245,10 +271,12 @@ func DBFindAllTenantsInCluster() (error, []ClusterConfig) {
 		return nil, nil
 	}
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 	err = cursor.All(context.TODO(), &clcfg)
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 	if len(clcfg) > 0 {
@@ -289,6 +317,7 @@ func DBFindClusterBundle(tenant string, bundleid string) (error, *ClusterBundle)
 		return nil, nil
 	}
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &bundle
@@ -310,12 +339,61 @@ func DBFindAllClusterBundlesForTenant(tenant string) (error, []ClusterBundle) {
 		return nil, nil
 	}
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 	err = cursor.All(context.TODO(), &bundles)
 	if err != nil {
+		DBCheckError(err)
 		return err, nil
 	}
 
 	return nil, bundles
+}
+
+//---------------------------Tenant ErrRec Collection functions---------------------------
+
+type ErrRec struct {
+	Tenant     string
+	Connectid  string
+	Operation  string
+	Collection string
+	Error      string
+	ChangeAt   string
+}
+
+// Today there is either errors per tenant or there is errors for gateways (applicable to all tenants)
+// The fact that the error is NOT for a tenant is indicated by tenant "" and connectid "". Of course later
+// if we have more kind of errors, this will need changing
+func DBErrToKey(data *ErrRec) string {
+	key := ""
+	if data.Tenant == "" && data.Connectid == "" {
+		key = "gateway-"
+	} else if data.Tenant != "" {
+		key = "tenant-" + data.Tenant
+	}
+	return key
+}
+
+func DBAddErrRec(data *ErrRec) error {
+	// The upsert option asks the DB to add if one is not found
+	upsert := true
+	after := options.After
+	opt := options.FindOneAndUpdateOptions{
+		ReturnDocument: &after,
+		Upsert:         &upsert,
+	}
+	err := errRecCltn.FindOneAndUpdate(
+		context.TODO(),
+		bson.M{"key": DBErrToKey(data)},
+		bson.D{
+			{"$set", bson.M{"key": DBErrToKey(data), "changeat": data.ChangeAt}},
+		},
+		&opt,
+	)
+	if err.Err() != nil {
+		DBCheckError(err.Err())
+		return err.Err()
+	}
+	return nil
 }

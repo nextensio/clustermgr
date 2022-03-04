@@ -22,6 +22,11 @@ sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/nextensio/apod2_2/d
 sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/nextensio/apod2_2/deploy-nextensio-apod2.yaml
 sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/nextensio/kismis1/deploy-nextensio-kismis-nextensio-com.yaml
 
+sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/dogfood/apod1_1/deploy-dogfood-apod1.yaml
+sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/dogfood/apod2_2/deploy-dogfood-apod1.yaml
+sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/dogfood/apod2_2/deploy-dogfood-apod2.yaml
+sed -i -e "s|REPLACE_MONGO_URI|$MY_MONGO_URI|g" ./test/yamls/dogfood/kismis1/deploy-dogfood-kismis-dogfood-com.yaml
+
 # We cant let go test run all of the tests in paralell because
 # all of them use the same "mel". So run them serially here
 go test -run TestBasicWithNoErrors

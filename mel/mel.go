@@ -8,8 +8,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	common "gitlab.com/nextensio/common/go"
@@ -46,6 +50,169 @@ var tenants map[string]*tenantInfo
 var inGwVersion bool
 var eGwVersion int
 
+// The error list is organized as a list of errors per tenant OR
+// a list of errors per gateway - there is only those two classes of
+// errors today, of counse there can be more in future, in which case
+// see comments in DBErrToKey() for more info.
+type ErrStack []*ErrRec
+
+var errRecList map[string]*ErrStack
+var eLock sync.RWMutex
+
+func PushErr(v *ErrRec) {
+	key := DBErrToKey(v)
+	if key == "" {
+		glog.Errorf("Bad key %v", v)
+		return
+	}
+	stack := errRecList[key]
+	if stack == nil {
+		var s ErrStack
+		s = append(s, v)
+		errRecList[key] = &s
+	} else {
+		s := append(*stack, v)
+		errRecList[key] = &s
+	}
+}
+
+func DelErr(key string, i int) {
+	s := errRecList[key]
+	s1 := append((*s)[:i], (*s)[i+1:]...)
+	errRecList[key] = &s1
+}
+
+func chopPath(orig string) string {
+	ind := strings.LastIndex(orig, "/")
+	if ind == -1 {
+		return orig
+	} else {
+		return orig[ind+1:]
+	}
+}
+
+func fnLine() string {
+	function, file, line, _ := runtime.Caller(1)
+	return fmt.Sprintf("%s:%s:%d", chopPath(file), runtime.FuncForPC(function).Name(), line)
+}
+
+// It helps to maintain the order in which errors happened. For example if we get a
+// connector delete followed by a tenant delete, and lets say both failed - and now if
+// we add it to an un-ordered error list, then we can attempt a tenant delete before
+// a connector delete, and thats gonna fail (tenant has to be empty to be deleted). So
+// we need to retry connector delete first and then the tenant delete
+func errRetryProcess() {
+	// After restart, clustermgr will rebuild everything from scratch, so
+	// no need to retain error databse
+	errRecCltn.Drop(context.TODO())
+
+	for {
+		eLock.Lock()
+		for key, stack := range errRecList {
+			if stack == nil {
+				continue
+			}
+			var arrDelIdx []int
+			for index, s := range *stack {
+				var err error
+				errMsg := fnLine()
+				var clcfg *ClusterConfig
+				glog.Infof("ErrorRetry: %s, %v", key, *s)
+				switch s.Collection {
+				case "NxtTenants":
+					err, clcfg = DBFindTenantInCluster(s.Tenant)
+					switch s.Operation {
+					case "insert":
+						if err == nil {
+							errMsg, err = addNewTenant(clcfg)
+						}
+					case "delete":
+						if err == nil {
+							errMsg, err = deleteNamespace(s.Tenant, tenants[s.Tenant])
+						}
+					case "update":
+						if err == nil {
+							errMsg, err = updateAgents(clcfg)
+						}
+					}
+				case "NxtConnectors":
+					err, clcfg = DBFindTenantInCluster(s.Tenant)
+					switch s.Operation {
+					case "insert":
+						if err == nil {
+							errMsg, err = createConnectors(clcfg)
+						}
+					case "delete":
+						if err == nil {
+							errMsg, err = deleteConnector(s.Tenant, s.Connectid)
+						}
+					case "update":
+						if err == nil {
+							errMsg, err = createConnectors(clcfg)
+						}
+					}
+				case "NxtGateways":
+					// TODO: Gateways don't handle delete as of today
+					errMsg, err = createEgressGateways()
+				}
+				if err != nil {
+					s.Error = errMsg
+					// We store minimal info in the database just to indicate to whoever
+					// wants to know (controller ?) that there was some error processing
+					// configs for this tenant. We "can" store a lot more detailed info here
+					// but thats pbbly of no use because if there is an error like this, an
+					// engineer has to be involved anyways, not much customer can do by seeing
+					// the error details on controller
+					DBAddErrRec(s)
+					glog.Info("ErrorRetry failed")
+				} else {
+					// Can't delete entries in array while processing the array in loop so,
+					// save the index to be deleted after the loop is processed
+					arrDelIdx = append(arrDelIdx, index)
+				}
+			}
+			if len(arrDelIdx) > 0 {
+				// Now call the DelErr in reverse to avoid index
+				for idx := range arrDelIdx {
+					idx = len(arrDelIdx) - 1 - idx
+					// now k starts from the end
+					DelErr(key, arrDelIdx[idx])
+				}
+			}
+		}
+		eLock.Unlock()
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func dumpErrors() {
+	eLock.Lock()
+	for key, stack := range errRecList {
+		if stack == nil {
+			continue
+		}
+		glog.Infof("dumpErrors: key %s, errors %d", key, len(*stack))
+		for _, s := range *stack {
+			glog.Infof("dumpErrors: %v", *s)
+		}
+	}
+	eLock.Unlock()
+}
+
+func addError(err error, errMsg string, op string, collection string, tenant string, connector string) {
+	if err == nil {
+		return
+	}
+	timenow := fmt.Sprintf("%s", time.Now().Format(time.RFC1123))
+	errRec := ErrRec{
+		Tenant: tenant, Operation: op, Collection: collection,
+		Error: errMsg + ":" + err.Error(), Connectid: connector, ChangeAt: timenow,
+	}
+	eLock.Lock()
+	PushErr(&errRec)
+	eLock.Unlock()
+}
+
 func watchClusterDB(cDB *mongo.Database) {
 	var cs *mongo.ChangeStream
 	var err error
@@ -70,132 +237,111 @@ func watchClusterDB(cDB *mongo.Database) {
 	// Whenever there is a new change event, decode the event and process  it
 	for cs.Next(context.TODO()) {
 		var changeEvent bson.M
-		var collTenant = true
-		var printMsg = ""
-		var id = ""
 
 		err = cs.Decode(&changeEvent)
 		if err != nil {
 			glog.Fatal(err)
 		}
 
-		// Get the collection info for this event first
+		op := changeEvent["operationType"].(string)
+		// Check to prevent panic error
+		if op == "drop" || op == "dropDatabase" || op == "invalidate" {
+			continue
+		}
 		ns := changeEvent["ns"].(primitive.M)
 		coll := ns["coll"].(string)
 
-		if coll != "NxtConnectors" && coll != "NxtTenants" {
-			// we don't care about any events from other collections
-			continue
-		}
+		switch coll {
+		case "NxtTenants":
+			dKey := changeEvent["documentKey"].(primitive.M)
+			tenant := dKey["_id"].(string)
+			var clcfg *ClusterConfig
+			var err error
+			errMsg := fnLine()
+			switch op {
+			case "insert":
+				err, clcfg = DBFindTenantInCluster(tenant)
+				if err == nil {
+					errMsg, err = addNewTenant(clcfg)
+				}
+			case "delete":
+				errMsg, err = deleteNamespace(tenant, tenants[tenant])
+			case "update":
+				err, clcfg = DBFindTenantInCluster(tenant)
+				if err == nil {
+					errMsg, err = updateAgents(clcfg)
+				}
+			}
+			addError(err, errMsg, op, coll, tenant, "")
+			glog.Infof("%s Tenant - %s %v %v clcfg:%v", op, tenant, err, errMsg, clcfg)
 
-		// Get the tenant info from documentKey
-		dKey := changeEvent["documentKey"].(primitive.M)
-		tenant := dKey["_id"].(string)
-
-		// If its from Connectors collection get the Id
-		if coll == "NxtConnectors" {
-			collTenant = false
-			// Get the cluster and tenant info from the change event
+		case "NxtConnectors":
+			connector := ""
+			tenant := ""
+			var clcfg *ClusterConfig
+			var err error
+			errMsg := fnLine()
 			for key, val := range changeEvent["documentKey"].(primitive.M) {
 				if key == "_id" {
-					splitted := strings.Split(val.(string), ":")
-					tenant = splitted[0]
-					id = val.(string)
+					split := strings.Split(val.(string), ":")
+					tenant = split[0]
+					connector = val.(string)
+					break
 				}
 			}
+
+			err, clcfg = DBFindTenantInCluster(tenant)
+			if err == nil {
+				switch op {
+				case "insert":
+					errMsg, err = createConnectors(clcfg)
+				case "delete":
+					errMsg, err = deleteConnector(tenant, connector)
+				case "update":
+					errMsg, err = createConnectors(clcfg)
+				}
+			}
+			addError(err, errMsg, op, coll, tenant, connector)
+			glog.Info(op, " connector - ", connector, " to tenant - ", tenant, " err:", err, " clcfg:", clcfg, " ", errMsg)
+
+		case "NxtGateways":
+			// TODO: Gateways don't handle delete as of today
+			errMsg, err := createEgressGateways()
+			addError(err, errMsg, op, coll, "", "")
+			glog.Info("Egress Gateway - ", op, err, errMsg)
 		}
-
-		switch changeEvent["operationType"] {
-		case "insert":
-			for {
-				err, clcfg := DBFindTenantInCluster(tenant)
-				if err == nil {
-					if clcfg != nil {
-						if collTenant {
-							glog.Info("DB Change Notification: Add Tenant - ", tenant)
-							printMsg = "Add new tenant error"
-							err = addNewTenant(clcfg)
-						} else {
-							glog.Info("DB Change Notification: Add/update connector - ", id, " to tenant - ", tenant)
-							printMsg = "create connector error"
-							err = createConnectors(clcfg)
-						}
-					}
-				}
-				if err == nil {
-					break
-				}
-				glog.Error(printMsg, err)
-				time.Sleep(time.Second)
-			}
-		case "delete":
-			glog.Info("DB Change Notification: Delete connector - ", id, " from tenant - ", tenant)
-			for {
-				if collTenant {
-					glog.Info("DB Change Notification: Delete tenant -", tenant)
-					printMsg = "delete namespace/tenant error"
-					err = deleteNamespace(tenant, tenants[tenant])
-				} else {
-					glog.Info("DB Change Notification: Delete connector - ", id, " from tenant - ", tenant)
-					printMsg = "delete connector error"
-					err = deleteConnector(tenant, id)
-				}
-				if err == nil {
-					break
-				}
-				glog.Error(printMsg, err)
-				time.Sleep(time.Second)
-			}
-
-		case "update":
-			for {
-				err, clcfg := DBFindTenantInCluster(tenant)
-				if err == nil {
-					if clcfg != nil {
-						if collTenant {
-							glog.Info("DB Change Notification: Add Tenant - ", tenant)
-							printMsg = "update agent error"
-							err = updateAgents(clcfg)
-						} else {
-							printMsg = "create connector error"
-							glog.Info("DB Change Notification: update connector - ", id, " to tenant - ", tenant)
-							err = createConnectors(clcfg)
-						}
-					}
-				}
-				if err == nil {
-					break
-				}
-				glog.Error(printMsg, err)
-				time.Sleep(time.Second)
-			}
+		if err = cs.Err(); err != nil {
+			glog.Fatalf("Watch MongoDB Change notification disconnected. %v", err)
 		}
 	}
-	glog.Fatalf("Watch MongoDB Change notification disconnected")
 }
 
-func addNewTenant(clcfg *ClusterConfig) error {
-	err := createTenants(clcfg)
+func addNewTenant(clcfg *ClusterConfig) (string, error) {
+	var errMsg string
+	errMsg, err := createTenants(clcfg)
 	if err != nil {
-		return err
+		return errMsg, err
 	}
 	// If connectors are already configured in the cluster, we need to create the connectors when the tenant
 	// is added to the cluster
-	err = createConnectors(clcfg)
+	errMsg, err = createConnectors(clcfg)
 	if err != nil {
-		return err
+		return errMsg, err
 	}
 	// Create the Egress gateways for the new tenant
-	err = createEgressGateways()
+	errMsg, err = createEgressGateways()
 	if err != nil {
-		return err
+		return errMsg, err
 	}
 
-	return nil
+	return errMsg, nil
 }
 
-func deleteConnector(tenant string, id string) error {
+func deleteConnector(tenant string, id string) (string, error) {
 	t := tenants[tenant]
+	if t == nil {
+		return fnLine(), errors.New("Tenant not found")
+	}
 	for i, c := range t.tenantSummary.Connectors {
 		if c.Id == id {
 			// First delete from kubectl and THEN update the summary database that then
@@ -203,9 +349,9 @@ func deleteConnector(tenant string, id string) error {
 			// will still continue attempting a delete when we come back up next time.
 			// Trying to delete non existant stuff will return a NotFound and we handle that
 			// gracefully
-			err := deleteOneConnector(tenant, c.Connectid, &c)
+			errMsg, err := deleteOneConnector(tenant, c.Connectid, &c)
 			if err != nil {
-				return err
+				return errMsg, err
 			}
 			l := len(t.tenantSummary.Connectors) - 1
 			t.tenantSummary.Connectors[i] = t.tenantSummary.Connectors[l]
@@ -214,23 +360,23 @@ func deleteConnector(tenant string, id string) error {
 			if err != nil {
 				// put it back and try again next time
 				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, c)
-				return err
+				return fnLine(), err
 			}
 			delete(t.bundleInfo, c.Connectid)
 			break
 		}
 	}
-	return nil
+	return "", nil
 }
 
-func updateAgents(clcfg *ClusterConfig) error {
+func updateAgents(clcfg *ClusterConfig) (string, error) {
 	t := tenants[clcfg.Tenant]
-	err := createAgentDeployments(clcfg)
+	errMsg, err := createAgentDeployments(clcfg)
 	if err != nil {
-		return err
+		return errMsg, err
 	}
 	t.deployVersion = clcfg.Version
-	return nil
+	return "", nil
 }
 
 func makeTenantInfo(tenant string) *tenantInfo {
@@ -259,6 +405,23 @@ func getGwName(cluster string) string {
 	return cluster + ".nextensio.net"
 }
 
+func checkKubeHardErr(errStr string) {
+	if strings.Contains(errStr, "The connection to the server") ||
+		strings.Contains(errStr, "You must be logged in to the server") ||
+		strings.Contains(errStr, "error loading config file") {
+		glog.Infof("Kube hard error encountered...")
+		for { // Sit in a loop until the error is cleared
+			cmd := exec.Command("kubectl", "get", "pod")
+			_, err := cmd.CombinedOutput()
+			if err == nil {
+				glog.Infof("kube hard error -- cleared")
+				break
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}
+}
+
 func kubectlApply(file string) error {
 	if unitTesting {
 		kubeErr := GetEnv("TEST_KUBE_ERR", "NOT_TEST")
@@ -272,6 +435,7 @@ func kubectlApply(file string) error {
 	out, err := cmd.CombinedOutput()
 	glog.Error("kubectl apply ", file, " result: ", string(out))
 	if err != nil {
+		checkKubeHardErr(string(out))
 		glog.Error("kubectl apply ", file, " failed: ", string(out), " error: ", err)
 		return err
 	}
@@ -292,6 +456,7 @@ func kubectlDelete(file string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	glog.Error("kubectl delete ", file, " result: ", string(out))
 	if err != nil {
+		checkKubeHardErr(string(out))
 		glog.Error("kubectl delete ", file, " failed: ", string(out), " error: ", err)
 		return string(out), err
 	}
@@ -519,7 +684,7 @@ func deleteApodService(tenant string, podname string, replicaStart int, replicaE
 	return nil
 }
 
-func createAgentDeployments(ct *ClusterConfig) error {
+func createAgentDeployments(ct *ClusterConfig) (string, error) {
 	t := tenants[ct.Tenant]
 	summary := t.tenantSummary
 
@@ -528,49 +693,49 @@ func createAgentDeployments(ct *ClusterConfig) error {
 		podname := getApodSetName(ct.Tenant, i)
 		err := deleteApodService(ct.Tenant, podname, ct.ApodRepl, summary.ApodRepl, false)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		err = deleteNxtForApod(ct.Tenant, podname, ct.ApodRepl, summary.ApodRepl)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 	}
 	for i := ct.ApodSets + 1; i <= summary.ApodSets; i++ {
 		podname := getApodSetName(ct.Tenant, i)
 		err := deleteApodService(ct.Tenant, podname, 0, summary.ApodRepl, true)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		err = deleteNxtForApod(ct.Tenant, podname, 0, summary.ApodRepl)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		err = deleteApodNxtConnect(ct.Tenant, podname)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		file := generateApodHeadless(ct.Tenant, podname)
 		if file == "" {
-			return errors.New("cannot create headless file")
+			return fnLine(), errors.New("cannot create headless file")
 		}
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
 		// panic in that case
 		out, err := kubectlDelete(file)
 		if err != nil && !strings.Contains(out, "NotFound") {
-			return err
+			return fnLine(), err
 		}
 		os.Remove(file)
 		file = generateApodDeploy(ct.Tenant, summary.Image, podname, summary.ApodRepl)
 		if file == "" {
-			return errors.New("yaml fail")
+			return fnLine(), errors.New("yaml fail")
 		}
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
 		// panic in that case
 		out, err = kubectlDelete(file)
 		if err != nil && !strings.Contains(out, "NotFound") {
-			return err
+			return fnLine(), err
 		}
 		os.Remove(file)
 	}
@@ -585,42 +750,42 @@ func createAgentDeployments(ct *ClusterConfig) error {
 	summary.ApodSets = ct.ApodSets
 	summary.Image = ct.Image
 	if err := DBUpdateTenantSummary(ct.Tenant, summary); err != nil {
-		return err
+		return fnLine(), err
 	}
 
 	for i := 1; i <= ct.ApodSets; i++ {
 		podname := getApodSetName(ct.Tenant, i)
 		file := generateApodDeploy(ct.Tenant, ct.Image, podname, ct.ApodRepl)
 		if file == "" {
-			return errors.New("yaml fail")
+			return fnLine(), errors.New("yaml fail")
 		}
 		err := kubectlApply(file)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		err = createApodService(ct.Tenant, podname, ct.ApodRepl)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		err = createNxtForApod(ct.Tenant, podname, ct.ApodRepl)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		err = createApodNxtConnect(ct.Tenant, podname)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		file = generateApodHeadless(ct.Tenant, podname)
 		if file == "" {
-			return errors.New("cannot create headless file")
+			return fnLine(), errors.New("cannot create headless file")
 		}
 		err = kubectlApply(file)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 	}
 
-	return nil
+	return "", nil
 }
 
 func generateDockerCred(ns string) (string, error) {
@@ -633,6 +798,7 @@ func generateDockerCred(ns string) (string, error) {
 	cmd := exec.Command("kubectl", "get", "secret", "regcred", "--namespace=default", "-o", "yaml")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		checkKubeHardErr(string(out))
 		glog.Error("Cannot read docker credentials", err.Error())
 		return "", err
 	}
@@ -671,64 +837,65 @@ func removeDir(directory string) {
 	os.Remove(directory)
 }
 
-func deleteNamespace(ns string, t *tenantInfo) error {
+func deleteNamespace(ns string, t *tenantInfo) (string, error) {
 	var outs string
 	var err error
 	if len(t.tenantSummary.Connectors) != 0 || len(t.bundleInfo) != 0 {
-		return errors.New("Tenant still has bundles: " + ns)
+		glog.Infof("Delete Namespace: connectors:%d   bundleInfo:%d", len(t.tenantSummary.Connectors), len(t.bundleInfo))
+		return fnLine(), errors.New("Tenant still has bundles: " + ns)
 	}
 	for i := 1; i <= t.tenantSummary.ApodSets; i++ {
 		podname := getApodSetName(ns, i)
 		err = deleteApodService(ns, podname, 0, t.tenantSummary.ApodRepl, true)
 		if err != nil {
-			return err
+			return fnLine(), err
 		}
 		file := generateApodHeadless(ns, podname)
 		if file == "" {
-			return errors.New("cannot create headless file")
+			return fnLine(), errors.New("cannot create headless file")
 		}
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
 		// panic in that case
 		outs, err := kubectlDelete(file)
 		if err != nil && !strings.Contains(outs, "NotFound") {
-			return err
+			return fnLine(), err
 		}
 		file = generateApodDeploy(ns, t.tenantSummary.Image, podname, t.tenantSummary.ApodRepl)
 		if file == "" {
-			return errors.New("yaml fail")
+			return fnLine(), errors.New("yaml fail")
 		}
 		// clustermgr might have crashed while in here and come back up and now
 		// we might be trying to delete something thats already deleted, so dont
 		// panic in that case
 		outs, err = kubectlDelete(file)
 		if err != nil && !strings.Contains(outs, "NotFound") {
-			return err
+			return fnLine(), err
 		}
 	}
 
 	file := generateTenantFlowControl(ns)
 	if file == "" {
-		return errors.New("yaml fail")
+		return fnLine(), errors.New("yaml fail")
 	}
 	// clustermgr might have crashed while in here and come back up and now
 	// we might be trying to delete something thats already deleted, so dont
 	// panic in that case
 	outs, err = kubectlDelete(file)
 	if err != nil && !strings.Contains(outs, "NotFound") {
-		return err
+		return fnLine(), err
 	}
 
 	file, err = generateDockerCred(ns)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 	// clustermgr might have crashed while in here and come back up and now
 	// we might be trying to delete something thats already deleted, so dont
 	// panic in that case
 	outs, err = kubectlDelete(file)
 	if err != nil && !strings.Contains(outs, "NotFound") {
-		return err
+		return fnLine(), err
 	}
 
 	cmd := exec.Command("kubectl", "delete", "namespace", common.TenantToNamespace(ns))
@@ -736,58 +903,61 @@ func deleteNamespace(ns string, t *tenantInfo) error {
 	if err != nil {
 		outs := string(out)
 		if !strings.Contains(outs, "NotFound") {
+			checkKubeHardErr(string(out))
 			glog.Error("Cannot delete namespace ", ns, ": ", outs)
-			return err
+			return fnLine(), err
 		}
 	}
 	err = DBDeleteTenantSummary(ns)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 	removeDir("/tmp/" + ns)
 	delete(tenants, ns)
-	return nil
+	return "", nil
 }
 
-func createNamespace(ns string) error {
+func createNamespace(ns string) (string, error) {
 	cmd := exec.Command("kubectl", "create", "namespace", common.TenantToNamespace(ns))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		outs := string(out)
 		if !strings.Contains(outs, "AlreadyExists") {
+			checkKubeHardErr(string(out))
 			glog.Error("Cannot create namespace ", ns, ": ", outs)
-			return err
+			return fnLine(), err
 		}
 	}
 	cmd = exec.Command("kubectl", "label", "namespace", common.TenantToNamespace(ns), "istio-injection=enabled", "--overwrite")
 	out, err = cmd.CombinedOutput()
 	if err != nil {
+		checkKubeHardErr(string(out))
 		glog.Error("Cannot enable istio injection for namespace ", ns, ": ", string(out))
-		return err
+		return fnLine(), err
 	}
 
 	file := generateTenantFlowControl(ns)
 	if file == "" {
-		return errors.New("yaml fail")
+		return fnLine(), errors.New("yaml fail")
 	}
 	err = kubectlApply(file)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 
 	file, err = generateDockerCred(ns)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 	err = kubectlApply(file)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 
-	return nil
+	return "", nil
 }
 
-func createTenants(clcfg *ClusterConfig) error {
+func createTenants(clcfg *ClusterConfig) (string, error) {
 	t := tenants[clcfg.Tenant]
 	if t == nil || !t.created {
 		if t == nil {
@@ -796,22 +966,22 @@ func createTenants(clcfg *ClusterConfig) error {
 		}
 		// Unknown tenant, so create tenant dir, then namespace.
 		_ = os.Mkdir("/tmp/"+clcfg.Tenant, 0777)
-		err := createNamespace(clcfg.Tenant)
+		errMsg, err := createNamespace(clcfg.Tenant)
 		if err != nil {
-			return err
+			return errMsg, err
 		}
 		t.created = true
 	}
 	t.markSweep = true
 
 	if t.deployVersion != clcfg.Version {
-		err := createAgentDeployments(clcfg)
+		errMsg, err := createAgentDeployments(clcfg)
 		if err != nil {
-			return err
+			return errMsg, err
 		}
 		t.deployVersion = clcfg.Version
 	}
-	return nil
+	return "", nil
 }
 
 //---------------------------------------Consul------------------------------------
@@ -907,21 +1077,21 @@ func createExtsvc(gateway string) error {
 	return nil
 }
 
-func createEgressGws(gw string) error {
+func createEgressGws(gw string) (string, error) {
 	err := createEgressGw(gw)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 	err = createExtsvc(gw)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 	err = createEgressGwDest(gw)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 
-	return nil
+	return "", nil
 }
 
 func generateIngressGw() string {
@@ -947,25 +1117,25 @@ func createIngressGw() error {
 // TODO: Deletion of remote gateways also needs to be handled, the
 // added information needs to go into summary database to help with
 // deletion
-func createEgressGateways() error {
+func createEgressGateways() (string, error) {
 	err, cl := DBFindGatewayCluster(getGwName(MyCluster))
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 	if cl == nil {
-		return errors.New(fmt.Sprintf("Cant find my cluster : %s ", MyCluster))
+		return fnLine(), errors.New(fmt.Sprintf("Cant find my cluster : %s ", MyCluster))
 	}
 	if eGwVersion == cl.Version {
-		return nil
+		return "", nil
 	}
 	for _, r := range cl.Remotes {
-		e := createEgressGws(getGwName(r))
+		errMsg, e := createEgressGws(getGwName(r))
 		if e != nil {
-			return e
+			return errMsg, e
 		}
 	}
 	eGwVersion = cl.Version
-	return nil
+	return "", nil
 }
 
 // Create ingress-gateway for our own cluster
@@ -993,7 +1163,7 @@ func generateCpodNxtConnect(tenant string, connectid string) string {
 func deleteCpodNxtConnect(tenant string, connectid string) (string, string, error) {
 	file := generateCpodNxtConnect(tenant, connectid)
 	if file == "" {
-		return "", "", errors.New("yaml fail")
+		return "", fnLine(), errors.New("yaml fail")
 	}
 	out, err := kubectlDelete(file)
 	return file, out, err
@@ -1063,7 +1233,7 @@ func generateCpodNxtFor(tenant string, connectid string) string {
 func deleteCpodNxtFor(tenant string, connectid string) (string, string, error) {
 	file := generateCpodNxtFor(tenant, connectid)
 	if file == "" {
-		return "", "", errors.New("yaml fail")
+		return "", fnLine(), errors.New("yaml fail")
 	}
 	out, err := kubectlDelete(file)
 	return file, out, err
@@ -1124,7 +1294,7 @@ func deleteCpodServiceReplica(tenant string, podname string, replicaStart int, r
 func deleteCpodInService(tenant string, podname string) (string, string, error) {
 	file := generateCpodInService(tenant, podname)
 	if file == "" {
-		return "", "", errors.New("yaml fail")
+		return "", fnLine(), errors.New("yaml fail")
 	} else {
 		out, err := kubectlDelete(file)
 		return file, out, err
@@ -1143,7 +1313,7 @@ func createCpodInService(tenant string, podname string) error {
 func deleteCpodOutService(tenant string, podname string) (string, string, error) {
 	file := generateCpodOutService(tenant, podname)
 	if file == "" {
-		return "", "", errors.New("yaml fail")
+		return "", fnLine(), errors.New("yaml fail")
 	} else {
 		out, err := kubectlDelete(file)
 		return file, out, err
@@ -1159,144 +1329,148 @@ func createCpodOutService(tenant string, podname string) error {
 	}
 }
 
-func createOneConnector(b ClusterBundle, ct *ClusterConfig) error {
+func createOneConnector(b ClusterBundle, ct *ClusterConfig) (string, error) {
 	file := generateCpodDeploy(ct.Tenant, ct.Image, b.Connectid, b.CpodRepl)
 	if file == "" {
 		glog.Error("Cpod deploy file failed", ct.Tenant, b.Connectid)
-		return errors.New("Cannot create bundle file")
+		return fnLine(), errors.New("Cannot create bundle file")
 	}
 	err := kubectlApply(file)
 	if err != nil {
 		glog.Error("Cpod deploy apply failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	err = createCpodOutService(ct.Tenant, b.Connectid)
 	if err != nil {
 		glog.Error("Cpod service failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	err = createCpodInService(ct.Tenant, b.Connectid)
 	if err != nil {
 		glog.Error("Cpod service failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	err = createCpodServiceReplica(ct.Tenant, b.Connectid, b.CpodRepl)
 	if err != nil {
 		glog.Error("Cpod service replica failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	if err := createCpodNxtFor(b); err != nil {
 		glog.Error("Cpod for failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	if err := createNxtForCpodReplica(ct.Tenant, b.Connectid, b.CpodRepl); err != nil {
 		glog.Error("Cpod for replica failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	if err := createCpodNxtConnect(b); err != nil {
 		glog.Error("Cpod connect failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	file = generateCpodHealth(ct.Tenant, b.Connectid)
 	if file == "" {
 		glog.Error("Pod health file failed", ct.Tenant, b.Connectid)
-		return errors.New("Cannot create health file")
+		return fnLine(), errors.New("Cannot create health file")
 	}
 	err = kubectlApply(file)
 	if err != nil {
 		glog.Error("Pod health apply failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 	file = generateCpodHeadless(ct.Tenant, b.Connectid)
 	if file == "" {
 		glog.Error("Pod headless file failed", ct.Tenant, b.Connectid)
-		return errors.New("Cannot create headless file")
+		return fnLine(), errors.New("Cannot create headless file")
 	}
 	err = kubectlApply(file)
 	if err != nil {
 		glog.Error("Pod headless apply failed", err, ct.Tenant, b.Connectid)
-		return err
+		return fnLine(), err
 	}
 
-	return nil
+	return "", nil
 }
 
 // clustermgr might have crashed while in here and come back up and now
 // we might be trying to delete something thats already deleted, so dont
 // panic incase kubectl delete returns a "NotFound" error
-func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) error {
+func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) (string, error) {
 	file, out, err := deleteCpodNxtFor(tenant, connectid)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Cpod for failed", err, tenant, connectid)
-		return err
+		return fnLine(), err
 	}
 	os.Remove(file)
 	err = deleteNxtForCpodReplica(tenant, connectid, 0, c.CpodRepl)
 	if err != nil {
 		glog.Error("Cpod nxtfor delete replicas failed", err, tenant, connectid, c.CpodRepl)
-		return err
+		return fnLine(), err
 	}
 	file, out, err = deleteCpodNxtConnect(tenant, connectid)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Cpod connect failed", err, tenant, connectid)
-		return err
+		return fnLine(), err
 	}
 	os.Remove(file)
 	file, out, err = deleteCpodOutService(tenant, connectid)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Cpod service failed", err, tenant, connectid)
-		return err
+		return fnLine(), err
 	}
 	os.Remove(file)
 	file, out, err = deleteCpodInService(tenant, connectid)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Cpod service failed", err, tenant, connectid)
-		return err
+		return fnLine(), err
 	}
 	os.Remove(file)
 	err = deleteCpodServiceReplica(tenant, connectid, 0, c.CpodRepl)
 	if err != nil {
 		glog.Error("Cpod service delete replicas failed", err, tenant, connectid, c.CpodRepl)
-		return err
+		return fnLine(), err
 	}
 	file = generateCpodHealth(tenant, connectid)
 	if file == "" {
 		glog.Error("Pod health file failed", tenant, connectid)
-		return errors.New("Cannot create health file")
+		return fnLine(), errors.New("Cannot create health file")
 	}
 	out, err = kubectlDelete(file)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Pod health delete failed", err, tenant, connectid)
-		return err
+		return fnLine(), err
 	}
 	os.Remove(file)
 	file = generateCpodHeadless(tenant, connectid)
 	if file == "" {
 		glog.Error("Pod headless file failed", tenant, connectid)
-		return errors.New("Cannot create health file")
+		return fnLine(), errors.New("Cannot create health file")
 	}
 	out, err = kubectlDelete(file)
 	if err != nil && !strings.Contains(out, "NotFound") {
 		glog.Error("Pod headless delete failed", err, tenant, connectid)
-		return err
+		return fnLine(), err
 	}
 	os.Remove(file)
 	file = generateCpodDeploy(tenant, c.Image, connectid, c.CpodRepl)
 	if file == "" {
 		glog.Error("Cpod deploy file failed", tenant, connectid)
-		return errors.New("Cannot create bundle file")
+		return fnLine(), errors.New("Cannot create bundle file")
 	}
 	out, err = kubectlDelete(file)
 	if err != nil && !strings.Contains(out, "NotFound") {
-		glog.Error("Cpod deploy apply failed", err, tenant, connectid)
-		return err
+		glog.Error("Cpod deploy delete failed", err, tenant, connectid)
+		return fnLine(), err
 	}
 	os.Remove(file)
 
-	return nil
+	return "", nil
 }
 
-func createConnectors(ct *ClusterConfig) error {
+func createConnectors(ct *ClusterConfig) (string, error) {
+	var errMsg string
+	if ct == nil {
+		return fnLine(), errors.New("Tenant not found")
+	}
 	t := tenants[ct.Tenant]
 	for _, c := range t.tenantSummary.Connectors {
 		binfo := t.bundleInfo[c.Connectid]
@@ -1310,7 +1484,7 @@ func createConnectors(ct *ClusterConfig) error {
 
 	err, bundles := DBFindAllClusterBundlesForTenant(ct.Tenant)
 	if err != nil {
-		return err
+		return fnLine(), err
 	}
 	for _, b := range bundles {
 		binfo := t.bundleInfo[b.Connectid]
@@ -1339,12 +1513,12 @@ func createConnectors(ct *ClusterConfig) error {
 			err := deleteNxtForCpodReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
 			if err != nil {
 				glog.Error("Cpod nxtfor delete replicas failed", ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
-				return err
+				return fnLine(), err
 			}
 			err = deleteCpodServiceReplica(ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
 			if err != nil {
 				glog.Error("Cpod service delete replicas failed", ct.Tenant, b.Connectid, b.CpodRepl, summary.CpodRepl)
-				return err
+				return fnLine(), err
 			}
 			summary.Image = ct.Image
 			summary.CpodRepl = b.CpodRepl
@@ -1355,14 +1529,14 @@ func createConnectors(ct *ClusterConfig) error {
 			// we handle that gracefully
 			err = DBUpdateTenantSummary(ct.Tenant, t.tenantSummary)
 			if err != nil {
-				return err
+				return fnLine(), err
 			}
-			err = createOneConnector(b, ct)
+			errMsg, err = createOneConnector(b, ct)
 			if err != nil {
-				return err
+				return errMsg, err
 			}
 			binfo.version = b.Version
-			glog.Error("Cpod success", ct.Tenant, b.Connectid)
+			glog.Info("Cpod success ", ct.Tenant, b.Connectid)
 		}
 	}
 
@@ -1375,9 +1549,9 @@ func createConnectors(ct *ClusterConfig) error {
 			// will still continue attempting a delete when we come back up next time.
 			// Trying to delete non existant stuff will return a NotFound and we handle that
 			// gracefully
-			err = deleteOneConnector(ct.Tenant, c.Connectid, &c)
+			errMsg, err = deleteOneConnector(ct.Tenant, c.Connectid, &c)
 			if err != nil {
-				return err
+				return errMsg, err
 			}
 			l := len(t.tenantSummary.Connectors) - 1
 			t.tenantSummary.Connectors[i] = t.tenantSummary.Connectors[l]
@@ -1386,13 +1560,13 @@ func createConnectors(ct *ClusterConfig) error {
 			if err != nil {
 				// put it back and try again next time
 				t.tenantSummary.Connectors = append(t.tenantSummary.Connectors, c)
-				return err
+				return fnLine(), err
 			}
 			delete(t.bundleInfo, c.Connectid)
 		}
 	}
 
-	return nil
+	return "", nil
 }
 
 //--------------------------------------Main---------------------------------------
@@ -1434,6 +1608,7 @@ func melMain() {
 	inGwVersion = false
 	eGwVersion = 0
 	tenants = make(map[string]*tenantInfo)
+	errRecList = make(map[string]*ErrStack)
 
 	// Create consul
 	for {
@@ -1478,7 +1653,7 @@ func melMain() {
 		time.Sleep(time.Second)
 	}
 	for {
-		err := createEgressGateways()
+		_, err := createEgressGateways()
 		if err == nil {
 			break
 		}
@@ -1495,7 +1670,7 @@ func melMain() {
 		for _, Tcfg := range clTcfg {
 			glog.Infof("Tenants in  %v:- <%v>", MyCluster, Tcfg.Tenant)
 			for {
-				err := createTenants(&Tcfg)
+				_, err := createTenants(&Tcfg)
 				if err == nil {
 					break
 				}
@@ -1503,7 +1678,7 @@ func melMain() {
 				time.Sleep(time.Second)
 			}
 			for {
-				err := createConnectors(&Tcfg)
+				_, err := createConnectors(&Tcfg)
 				if err == nil {
 					break
 				}
@@ -1521,7 +1696,7 @@ func melMain() {
 		// If its still marked as false, then there is no such tenant
 		if !t.markSweep {
 			for {
-				err := deleteNamespace(k, t)
+				_, err := deleteNamespace(k, t)
 				if err == nil {
 					break
 				}
@@ -1534,11 +1709,15 @@ func melMain() {
 	// register Cluster database for event notification and start event
 	// based actions beyond this point
 	go watchClusterDB(clusterDB)
+	go errRetryProcess()
 
+	// Do kill -USR1 <pid of mel> to get debugging info
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGUSR1)
 	for {
-		time.Sleep(86400 * time.Second)
+		<-sigc
+		dumpErrors()
 	}
-
 }
 
 func main() {
