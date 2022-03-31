@@ -289,6 +289,22 @@ func GetConsul(myip string, storage string, cluster string) string {
 	return storageRepl
 }
 
+func GetRouteReflector(namespace string, cluster string, mongo string) string {
+	content, err := ioutil.ReadFile(MyYaml + "/route_reflector.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fc := string(content)
+	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
+	nspcRepl := reNspc.ReplaceAllString(fc, namespace)
+	reClus := regexp.MustCompile(`REPLACE_CLUSTER`)
+	clusRepl := reClus.ReplaceAllString(nspcRepl, cluster)
+	reMongo := regexp.MustCompile(`REPLACE_MONGO`)
+	mongoRepl := reMongo.ReplaceAllString(clusRepl, mongo)
+
+	return mongoRepl
+}
+
 func GetFlowControl(namespace string) string {
 	content, err := ioutil.ReadFile(MyYaml + "/flow_control.yaml")
 	if err != nil {

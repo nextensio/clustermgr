@@ -487,6 +487,13 @@ func generateTenantFlowControl(t string) string {
 	return yamlFile(file, yaml)
 }
 
+// Generate route-reflector yaml for the  tenant
+func generateTenantRouteReflector(t string) string {
+	file := "/tmp/" + t + "/route_reflector.yaml"
+	yaml := GetRouteReflector(t, MyCluster, MyMongo)
+	return yamlFile(file, yaml)
+}
+
 // Generate virtual service to handle Cpod to Apod traffic based on x-nextensio-for
 // header whose value is a pod name
 func generateNxtForApod(t string, podname string, idx int) string {
@@ -898,6 +905,18 @@ func deleteNamespace(ns string, t *tenantInfo) (string, error) {
 		return fnLine(), err
 	}
 
+	file = generateTenantRouteReflector(ns)
+	if file == "" {
+		return fnLine(), errors.New("yaml fail")
+	}
+	// clustermgr might have crashed while in here and come back up and now
+	// we might be trying to delete something thats already deleted, so dont
+	// panic in that case
+	outs, err = kubectlDelete(file)
+	if err != nil && !strings.Contains(outs, "NotFound") {
+		return fnLine(), err
+	}
+
 	cmd := exec.Command("kubectl", "delete", "namespace", common.TenantToNamespace(ns))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -948,6 +967,15 @@ func createNamespace(ns string) (string, error) {
 	file, err = generateDockerCred(ns)
 	if err != nil {
 		return fnLine(), err
+	}
+	err = kubectlApply(file)
+	if err != nil {
+		return fnLine(), err
+	}
+
+	file = generateTenantRouteReflector(ns)
+	if file == "" {
+		return fnLine(), errors.New("yaml fail")
 	}
 	err = kubectlApply(file)
 	if err != nil {
