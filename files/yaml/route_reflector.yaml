@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: route-reflector
+  namespace: nxt-REPLACE_NAMESPACE
+  labels:
+    app: route-reflector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: route-reflector
+  template:
+    metadata:
+      labels:
+        app: route-reflector
+        role: cwatch
+    spec:
+      containers:
+      - name: route-reflector
+        image: registry.gitlab.com/nextensio/routereflector/consul-rr:latest
+        ports:
+        - containerPort: 80
+        imagePullPolicy: Always
+        stdin: true 
+        tty: true 
+        env:
+         - name: MY_NODE_NAME                                    
+           valueFrom:                                            
+             fieldRef:                                           
+               fieldPath: spec.nodeName            
+         - name: MY_POD_NAMESPACE
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.namespace
+         - name: MY_POD_CLUSTER
+           value: "REPLACE_CLUSTER"
+         - name: MY_MONGO_URI
+           value: "REPLACE_MONGO"
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: route-ref
+  namespace: nxt-REPLACE_NAMESPACE
+  labels:
+    app: route-reflector
+spec:
+  selector:
+    app: route-reflector
+  ports:
+  - port: 80
+    name: http
