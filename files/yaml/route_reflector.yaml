@@ -21,7 +21,7 @@ spec:
         image: registry.gitlab.com/nextensio/routereflector/consul-rr:latest
         ports:
         - containerPort: 80
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         stdin: true 
         tty: true 
         env:
