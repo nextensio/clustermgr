@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/golang/glog"
 	"go.mongodb.org/mongo-driver/bson"
@@ -57,15 +56,6 @@ func DBConnect() bool {
 	return true
 }
 
-func DBCheckError(err error) {
-	// If there is network or timeout error from the server, sit in a loop until
-	// its cleared as we can't do much until the DB is accessible again.
-	for mongo.IsNetworkError(err) || mongo.IsTimeout(err) {
-		glog.Infof("DB Error : %v", err)
-		time.Sleep(2 * time.Second)
-	}
-}
-
 type ConnectorSummary struct {
 	Id        string `bson:"_id"`
 	Image     string `bson:"image"`
@@ -101,7 +91,6 @@ func DBFindAllTenantSummary() (error, []TenantSummary) {
 	}
 	err = cursor.All(context.TODO(), &summary)
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 
@@ -127,7 +116,6 @@ func DBFindTenantSummary(tenant string) (error, *TenantSummary) {
 		return nil, nil
 	}
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &summary
@@ -159,7 +147,6 @@ func DBUpdateTenantSummary(tenant string, summary *TenantSummary) error {
 	)
 
 	if err.Err() != nil {
-		DBCheckError(err.Err())
 		return err.Err()
 	}
 
@@ -181,7 +168,6 @@ func DBDeleteTenantSummary(tenant string) error {
 	)
 
 	if err != nil {
-		DBCheckError(err)
 		return err
 	}
 	return nil
@@ -214,7 +200,6 @@ func DBFindGatewayCluster(gwname string) (error, *ClusterGateway) {
 		return nil, nil
 	}
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &gateway
@@ -249,7 +234,6 @@ func DBFindTenantInCluster(tenant string) (error, *ClusterConfig) {
 		return nil, nil
 	}
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &clcfg
@@ -271,12 +255,10 @@ func DBFindAllTenantsInCluster() (error, []ClusterConfig) {
 		return nil, nil
 	}
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 	err = cursor.All(context.TODO(), &clcfg)
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 	if len(clcfg) > 0 {
@@ -317,7 +299,6 @@ func DBFindClusterBundle(tenant string, bundleid string) (error, *ClusterBundle)
 		return nil, nil
 	}
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 	return nil, &bundle
@@ -339,12 +320,10 @@ func DBFindAllClusterBundlesForTenant(tenant string) (error, []ClusterBundle) {
 		return nil, nil
 	}
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 	err = cursor.All(context.TODO(), &bundles)
 	if err != nil {
-		DBCheckError(err)
 		return err, nil
 	}
 
@@ -392,7 +371,6 @@ func DBAddErrRec(data *ErrRec) error {
 		&opt,
 	)
 	if err.Err() != nil {
-		DBCheckError(err.Err())
 		return err.Err()
 	}
 	return nil
