@@ -294,6 +294,13 @@ func GetRouteReflector(namespace string, cluster string, mongo string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
+	var image string
+	devTest := GetEnv("DEVELOPER_TESTBED", "false")
+	if devTest == "true" {
+		image = "registry.gitlab.com/nextensio/routereflector/consul-rr:latest"
+	} else {
+		image = "registry.gitlab.com/nextensio/routereflector/consul-rr:production"
+	}
 	fc := string(content)
 	reNspc := regexp.MustCompile(`REPLACE_NAMESPACE`)
 	nspcRepl := reNspc.ReplaceAllString(fc, namespace)
@@ -301,8 +308,10 @@ func GetRouteReflector(namespace string, cluster string, mongo string) string {
 	clusRepl := reClus.ReplaceAllString(nspcRepl, cluster)
 	reMongo := regexp.MustCompile(`REPLACE_MONGO`)
 	mongoRepl := reMongo.ReplaceAllString(clusRepl, mongo)
+	reImg := regexp.MustCompile(`REPLACE_IMAGE`)
+	imgRepl := reImg.ReplaceAllString(mongoRepl, image)
 
-	return mongoRepl
+	return imgRepl
 }
 
 func GetFlowControl(namespace string) string {

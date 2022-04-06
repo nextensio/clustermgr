@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: route-reflector
-        image: registry.gitlab.com/nextensio/routereflector/consul-rr:latest
+        image: REPLACE_IMAGE
         ports:
         - containerPort: 80
         imagePullPolicy: IfNotPresent
