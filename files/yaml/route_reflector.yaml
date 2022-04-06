@@ -21,7 +21,7 @@ spec:
         image: REPLACE_IMAGE
         ports:
         - containerPort: 80
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: REPLACE_PULL_POLICY
         stdin: true 
         tty: true 
         env:
