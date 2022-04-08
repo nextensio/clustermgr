@@ -1724,11 +1724,18 @@ func melMain() {
 		// If its still marked as false, then there is no such tenant
 		if !t.markSweep {
 			for {
+				for _, c := range t.tenantSummary.Connectors {
+					errMsg, err := deleteConnector(t.tenantSummary.Tenant, c.Id)
+					if err != nil {
+						glog.Error("Mark and Sweep: Cannot delete connector", c.Id, err, errMsg)
+					}
+				}
 				_, err := deleteNamespace(k, t)
 				if err == nil {
 					break
 				}
-				glog.Error("Cannot delete namespace", err)
+				glog.Error("Mark and Sweep: Cannot delete namespace", err)
+				time.Sleep(2 * time.Second)
 			}
 		}
 	}
