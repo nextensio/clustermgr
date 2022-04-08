@@ -137,18 +137,18 @@ func errRetryProcess() {
 					}
 				case "NxtConnectors":
 					err, clcfg = DBFindTenantInCluster(s.Tenant)
-					switch s.Operation {
-					case "insert":
-						if err == nil {
-							errMsg, err = createConnectors(clcfg)
-						}
-					case "delete":
-						if err == nil {
+					if err == nil {
+						switch s.Operation {
+						case "insert":
+							if clcfg != nil {
+								errMsg, err = createConnectors(clcfg)
+							}
+						case "delete":
 							errMsg, err = deleteConnector(s.Tenant, s.Connectid)
-						}
-					case "update":
-						if err == nil {
-							errMsg, err = createConnectors(clcfg)
+						case "update":
+							if clcfg != nil {
+								errMsg, err = createConnectors(clcfg)
+							}
 						}
 					}
 				case "NxtGateways":
@@ -294,11 +294,15 @@ func watchClusterDB(cDB *mongo.Database) {
 			if err == nil {
 				switch op {
 				case "insert":
-					errMsg, err = createConnectors(clcfg)
+					if clcfg != nil {
+						errMsg, err = createConnectors(clcfg)
+					}
 				case "delete":
 					errMsg, err = deleteConnector(tenant, connector)
 				case "update":
-					errMsg, err = createConnectors(clcfg)
+					if clcfg != nil {
+						errMsg, err = createConnectors(clcfg)
+					}
 				}
 			}
 			addError(err, errMsg, op, coll, tenant, connector)
@@ -1496,9 +1500,7 @@ func deleteOneConnector(tenant string, connectid string, c *ConnectorSummary) (s
 
 func createConnectors(ct *ClusterConfig) (string, error) {
 	var errMsg string
-	if ct == nil {
-		return fnLine(), errors.New("Tenant not found")
-	}
+
 	t := tenants[ct.Tenant]
 	for _, c := range t.tenantSummary.Connectors {
 		binfo := t.bundleInfo[c.Connectid]
